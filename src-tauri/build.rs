@@ -83,6 +83,7 @@ fn main() {
         "update_hotkeys",
         "set_window_theme",
         "apply_staged_update",
+        "open_external_url",
     ]);
 
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(app_manifest))

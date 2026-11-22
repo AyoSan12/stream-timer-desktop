@@ -123,6 +123,7 @@ cases.push({
 
     // Step 2 -> Step 3 (YouTube + Twitch 70/30)
     await page.locator('#obNextBtn').click();
+    assert(await page.locator('#obYtHintWrap').isVisible(), 'YouTube auto-detection hint appears when YouTube is selected');
     await page.locator('#obStreamTw').click();
     assert(await page.locator('#obTwSplitWrap').isVisible(), 'Twitch split selector appears');
     await page.selectOption('#obTwSplitSelect', '30');
@@ -273,6 +274,10 @@ cases.push({
     await page.locator('[data-timer-tab="triggers"]').click();
     await page.waitForTimeout(100);
     assert(await page.locator('#timerPanelTriggers').isVisible(), 'Timer -> Triggers sub-tab opens cleanly');
+    await page.locator('#timerPanelTriggers [data-open-tw-catalog]').click();
+    await page.waitForTimeout(100);
+    assert(await page.locator('#setPanelTwitch').isVisible(), 'Timer -> Triggers quick-link jumps to Twitch Catalog');
+    await page.locator('#nav-timer').click();
     await page.locator('[data-timer-tab="controls"]').click();
     await page.waitForTimeout(100);
 

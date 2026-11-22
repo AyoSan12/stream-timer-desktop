@@ -63,6 +63,7 @@ let overlaySaveTimer = null;
 let rulesSaveTimer = null;
 let unmatchedYoutubeLevels = [];
 let pendingDiscCreateLevel = '';
+let updateBgTimer = null;
 let toastTimer = null;
 let helloTimer = null;
 let link = null;
@@ -567,6 +568,8 @@ function openOnboarding({ addingAnother = false } = {}) {
   $('obProfHandle').value = '';
   $('obSlToken').value = '';
   $('obSlVerifyStatus').hidden = true;
+  if ($('obYtHintWrap')) $('obYtHintWrap').hidden = !obState.streamPlatforms.has('youtube');
+  $('obTwSplitWrap').hidden = !obState.streamPlatforms.has('twitch');
   $('obSlIllustration').innerHTML = STREAMLABS_GUIDE_SVG;
   $('obObsIllustration').innerHTML = OBS_GUIDE_SVG;
   $('obHelloMark').innerHTML = APP_MARK_SVG;
@@ -694,13 +697,14 @@ async function hydrateActiveWorkspace() {
   $('setCloseToTrayChk').checked = Boolean(bootData.closeToTray);
   if (bootData.updates) {
     renderUpdateStatus(bootData.updates);
-    if (bootData.updates.autoCheck && bootData.updates.status === 'idle') {
+    const runBgCheck = () => {
+      if (bootData?.updates?.autoCheck === false) return;
       api('/api/updates/check', { method: 'POST', body: {} }).then(async (r) => {
         if (!r.ok || !r.data?.updates) return;
         renderUpdateStatus(r.data.updates);
         if (r.data.updates.status === 'update_available' && r.data.updates.autoInstall) {
           const st = await api('/api/updates/status');
-          if (st.ok && !st.data?.isStreamingBusy) {
+          if (st.ok && !st.data?.isTimerRunning) {
             const dl = await api('/api/updates/download', { method: 'POST' });
             if (dl.ok && dl.data?.status) {
               renderUpdateStatus(dl.data.status);
@@ -709,7 +713,9 @@ async function hydrateActiveWorkspace() {
           }
         }
       }).catch(() => {});
-    }
+    };
+    if (bootData.updates.autoCheck && bootData.updates.status === 'idle') runBgCheck();
+    if (!updateBgTimer) updateBgTimer = setInterval(runBgCheck, 6 * 3600 * 1000);
   }
 
   if (!link) {
@@ -825,12 +831,20 @@ async function loadHome() {
       goto: 'integrations',
     },
   ];
+  if (Array.isArray(h.unmatchedYoutubeLevels) && h.unmatchedYoutubeLevels.length > 0) {
+    checks.push({
+      label: 'YouTube Membership Tiers',
+      status: 'warn',
+      detail: `${h.unmatchedYoutubeLevels.length} level(s) need mapping`,
+      onClick: openYoutubeCatalogSettings,
+    });
+  }
   for (const c of checks) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'check-row';
     b.innerHTML = `<span class="check-left"><span class="check-dot ${c.status}"></span>${c.label}</span><span class="check-right">${c.detail}</span>`;
-    b.addEventListener('click', () => switchView(c.goto));
+    b.addEventListener('click', () => (c.onClick ? c.onClick() : switchView(c.goto)));
     list.append(b);
   }
 
@@ -1925,6 +1939,7 @@ function bindAllEvents() {
         obState.streamPlatforms.add(p);
       }
       b.classList.toggle('is-selected', obState.streamPlatforms.has(p));
+      if ($('obYtHintWrap')) $('obYtHintWrap').hidden = !obState.streamPlatforms.has('youtube');
       $('obTwSplitWrap').hidden = !obState.streamPlatforms.has('twitch');
     });
   });
@@ -2226,10 +2241,21 @@ function bindAllEvents() {
   });
   $('saveRulesBtn').addEventListener('click', () => saveRulesToServer('Saved donation tiers'));
   $('saveTriggersBtn').addEventListener('click', () => saveRulesToServer('Saved timer triggers'));
-  // Global 1-click YouTube Catalog discovery banner jumps
+  // Global 1-click YouTube/Twitch Catalog jumps & native Tauri external browser opener
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-open-yt-catalog]')) {
       openYoutubeCatalogSettings();
+      return;
+    }
+    if (e.target.closest('[data-open-tw-catalog]')) {
+      switchView('settings');
+      document.querySelector('[data-set-tab="twitch"]')?.click();
+      return;
+    }
+    const extLink = e.target.closest('a[target="_blank"][href^="https://"]');
+    if (extLink && window.__TAURI_INTERNALS__?.invoke) {
+      e.preventDefault();
+      window.__TAURI_INTERNALS__.invoke('open_external_url', { url: extLink.href }).catch(() => {});
     }
   });
 

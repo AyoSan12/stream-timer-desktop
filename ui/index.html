@@ -148,6 +148,10 @@
             <span data-i18n="ob.plat.twDesc">Prime, Tier 1 / 2 / 3 Subscriptions, Gift Subs &amp; Bits with customizable Partner split.</span>
           </button>
         </div>
+        <div id="obYtHintWrap" class="card" style="padding:12px 16px;margin-bottom:10px;">
+          <strong style="font-size:12.5px;display:block;margin-bottom:3px;">YouTube Memberships — Smart Auto-Detection</strong>
+          <span class="helper-text">Membership tiers are pre-configured for your currency and can be customized anytime in Settings → YouTube Catalog. Unrecognized live tiers are auto-detected for 1-click mapping with zero dropped events.</span>
+        </div>
         <div id="obTwSplitWrap" class="card" style="padding:14px 16px;" hidden>
           <label class="field"><span data-i18n="ob.plat.twSplit">Twitch Revenue Split (Finance)</span>
             <select id="obTwSplitSelect">
@@ -186,7 +190,7 @@
   </section>
 </main>
 
-<!-- Main 8-Tab Apple Workspace (Unified Single Titlebar + Toolbar in Desktop mode!) -->
+<!-- Main 7-Tab Workspace (Unified Single Titlebar + Toolbar in Desktop mode!) -->
 <div id="appRoot" hidden>
   <header id="appTopbar" class="topbar" data-tauri-drag-region>
     <div class="topbar-inner" data-tauri-drag-region>
@@ -510,6 +514,14 @@
               <label class="toggle-row"><span>Twitch Prime Sub</span><input id="trTwPrime" type="checkbox" checked></label>
               <label class="toggle-row"><span>Twitch Gift Sub</span><input id="trTwGift" type="checkbox" checked></label>
               <label class="toggle-row"><span>Twitch Bits / Cheers</span><input id="trTwBits" type="checkbox" checked></label>
+            </div>
+          </div>
+          <hr class="hairline">
+          <div class="btn-row" style="justify-content:space-between;">
+            <span class="helper-text" style="margin:0;">Need to adjust membership prices or time rules?</span>
+            <div class="btn-row">
+              <button type="button" class="btn btn-link btn-sm" data-open-yt-catalog>Manage YouTube Membership tiers &amp; prices →</button>
+              <button type="button" class="btn btn-link btn-sm" data-open-tw-catalog>Manage Twitch tier prices →</button>
             </div>
           </div>
         </section>

@@ -201,6 +201,12 @@
           "markdownDescription": "Enables the get_engine_info command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_external_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-external-url",
+          "markdownDescription": "Enables the open_external_url command without any pre-configured scope."
+        },
+        {
           "description": "Enables the retry_engine_boot command without any pre-configured scope.",
           "type": "string",
           "const": "allow-retry-engine-boot",
@@ -277,6 +283,12 @@
           "type": "string",
           "const": "deny-get-engine-info",
           "markdownDescription": "Denies the get_engine_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_external_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-external-url",
+          "markdownDescription": "Denies the open_external_url command without any pre-configured scope."
         },
         {
           "description": "Denies the retry_engine_boot command without any pre-configured scope.",

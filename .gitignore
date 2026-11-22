@@ -1,6 +1,8 @@
 # Build outputs & local binaries (distributed via GitHub Releases)
 src-tauri/target/
+src-tauri/bin/
 Stream Timer.exe
+Stream-Timer-Setup.exe
 *.exe
 *.exe.old
 latest.json

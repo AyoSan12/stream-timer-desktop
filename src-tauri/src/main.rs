@@ -259,6 +259,30 @@ fn update_hotkeys(app: AppHandle, state: State<'_, AppState>, hotkeys: HotkeyCon
     Ok(())
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://") {
+        return Err("Only HTTPS external URLs are permitted".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(trimmed)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Failed opening browser: {}", e))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| format!("Failed opening browser: {}", e))?;
+    }
+    Ok(())
+}
+
 /// Atomically self-update standalone Stream Timer.exe on Windows from a SHA-256 verified staged binary.
 #[tauri::command]
 fn apply_staged_update(app: AppHandle, state: State<'_, AppState>, staged_path: String) -> Result<(), String> {
@@ -457,7 +481,7 @@ fn register_hotkeys(app: &AppHandle, engine: Arc<SharedEngine>, cfg: &HotkeyConf
 
 // ------------------------------------------------ Standalone Runtime --------
 
-fn resolve_node_binary() -> PathBuf {
+fn resolve_node_binary(app: &AppHandle) -> PathBuf {
     if let Ok(explicit) = std::env::var("STREAM_TIMER_NODE_BIN") {
         let p = PathBuf::from(explicit);
         if p.is_file() {
@@ -469,6 +493,13 @@ fn resolve_node_binary() -> PathBuf {
             let bundled = dir.join("node.exe");
             if bundled.is_file() {
                 return bundled;
+            }
+        }
+    }
+    if let Ok(res_dir) = app.path().resource_dir() {
+        for cand in [res_dir.join("node.exe"), res_dir.join("bin").join("node.exe")] {
+            if cand.is_file() {
+                return cand;
             }
         }
     }
@@ -531,22 +562,34 @@ fn ensure_embedded_runtime() -> Result<(PathBuf, PathBuf), String> {
 }
 
 fn resolve_engine_script(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
-    let mut local_roots: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            local_roots.push(dir.to_path_buf());
-        }
-    }
-    if let Ok(res_dir) = app.path().resource_dir() {
-        local_roots.push(res_dir.clone());
-        local_roots.push(res_dir.join("_up_"));
-    }
-    for root in local_roots {
+    if let Ok(dev_dir) = std::env::var("STREAM_TIMER_DEV_DIR") {
+        let root = PathBuf::from(dev_dir);
         let candidate = root.join("engine").join("main.js");
         if candidate.is_file() && root.join("ui").join("index.html").is_file() {
             return Ok((root, candidate));
         }
     }
+
+    #[cfg(debug_assertions)]
+    {
+        let mut local_roots: Vec<PathBuf> = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                local_roots.push(dir.to_path_buf());
+            }
+        }
+        if let Ok(res_dir) = app.path().resource_dir() {
+            local_roots.push(res_dir.clone());
+            local_roots.push(res_dir.join("_up_"));
+        }
+        for root in local_roots {
+            let candidate = root.join("engine").join("main.js");
+            if candidate.is_file() && root.join("ui").join("index.html").is_file() {
+                return Ok((root, candidate));
+            }
+        }
+    }
+    let _ = app;
 
     ensure_embedded_runtime()
 }
@@ -570,7 +613,7 @@ fn spawn_local_engine(app: AppHandle, engine: Arc<SharedEngine>) {
             }
         };
 
-        let node_bin = resolve_node_binary();
+        let node_bin = resolve_node_binary(&app);
         let mut cmd = Command::new(&node_bin);
         cmd.arg(&script_path)
             .current_dir(&work_dir)
@@ -772,6 +815,7 @@ fn main() {
             get_engine_info,
             update_hotkeys,
             apply_staged_update,
+            open_external_url,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
