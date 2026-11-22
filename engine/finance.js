@@ -567,7 +567,7 @@ export function exportFinanceMarkdown(report) {
   const fmt = (v) => formatMoney(v, cur);
   const esc = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
   const lines = [
-    `# Stream Revenue Report — ${report.scope.label}`,
+    `# Stream Revenue Report: ${report.scope.label}`,
     '',
     `- **Currency:** ${cur}`,
     `- **Generated:** ${report.exportedAtIso}`,
@@ -631,7 +631,7 @@ export function exportFinanceHtmlReport(report) {
     </tr>`;
   }).join('');
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Financial Statement — ${escHtml(report.scope.label)}</title>
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Financial Statement: ${escHtml(report.scope.label)}</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; padding: 32px; background: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; font-size: 13px; }

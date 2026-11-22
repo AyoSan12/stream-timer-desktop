@@ -729,7 +729,7 @@ fn build_tray(app: &AppHandle, engine: Arc<SharedEngine>) -> tauri::Result<()> {
     let eng_menu = Arc::clone(&engine);
     TrayIconBuilder::with_id("stream-timer-tray")
         .icon(tray_icon)
-        .tooltip("Stream Timer — Local OBS & Creator Studio")
+        .tooltip("Stream Timer | Local OBS & Creator Studio")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import {
   applyCommand, snapshotOf, effectiveRemainingMs,
@@ -319,6 +321,28 @@ cases.push({
     eq(normalizeYoutubeLevelKey('  👑 VIP!!  '), 'vip', 'normalizeYoutubeLevelKey strips emojis cleanly');
 
     return { testedStages: 7 };
+  },
+});
+
+cases.push({
+  id: 'M7-zero-em-dash-copy-guard',
+  fn() {
+    const roots = ['ui', 'ui-boot', 'engine', 'src-tauri/src', 'README.md', 'scripts', '.github/workflows/release.yml'];
+    const hits = [];
+    function walk(p) {
+      if (!fs.existsSync(p)) return;
+      if (fs.statSync(p).isDirectory()) {
+        for (const f of fs.readdirSync(p)) walk(path.join(p, f));
+        return;
+      }
+      const lines = fs.readFileSync(p, 'utf8').split(/\r?\n/);
+      lines.forEach((l, idx) => {
+        if (l.includes('\u2014')) hits.push(`${p}:${idx + 1}`);
+      });
+    }
+    for (const r of roots) walk(r);
+    eq(hits.length, 0, `Zero em-dash characters allowed across app/repo (found: ${hits.join(', ')})`);
+    return { scannedRoots: roots.length, emDashHits: 0 };
   },
 });
 

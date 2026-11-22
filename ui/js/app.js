@@ -1,7 +1,7 @@
-// Stream Timer Desktop — Complete Apple UI Controller.
+// Stream Timer Desktop: Complete UI Controller.
 // Handles Intro Splash, 6-Step Setup Assistant, Multi-Profile Switcher,
 // 8-Language Reactive i18n, Light/Dark/System Appearance, Sliding Nav Thumb,
-// Home Mission Control, Timer, Donations, Finance, Rules, OBS, Integrations,
+// Home Mission Control, Timer, Donations, Finance, OBS, Integrations,
 // 1-Click Tunnel, Settings, and Tauri v2 Desktop IPC hooks.
 
 import { remainingAt, formatSeconds, formatClock } from './timer-client.js';
@@ -15,27 +15,39 @@ import {
 const $ = (id) => document.getElementById(id);
 
 const POPULAR_CURRENCIES = [
-  ['USD', 'USD ($) — US Dollar'],
-  ['IDR', 'IDR (Rp) — Indonesian Rupiah'],
-  ['JPY', 'JPY (¥) — Japanese Yen'],
-  ['KRW', 'KRW (₩) — South Korean Won'],
-  ['TWD', 'TWD (NT$) — New Taiwan Dollar'],
-  ['SGD', 'SGD (S$) — Singapore Dollar'],
-  ['MYR', 'MYR (RM) — Malaysian Ringgit'],
-  ['EUR', 'EUR (€) — Euro'],
-  ['GBP', 'GBP (£) — British Pound'],
-  ['BRL', 'BRL (R$) — Brazilian Real'],
-  ['AUD', 'AUD (A$) — Australian Dollar'],
-  ['CAD', 'CAD (C$) — Canadian Dollar'],
-  ['PHP', 'PHP (₱) — Philippine Peso'],
-  ['THB', 'THB (฿) — Thai Baht'],
-  ['VND', 'VND (₫) — Vietnamese Dong'],
-  ['CNY', 'CNY (¥) — Chinese Yuan'],
-  ['HKD', 'HKD (HK$) — Hong Kong Dollar'],
-  ['MXN', 'MXN (MX$) — Mexican Peso'],
-  ['INR', 'INR (₹) — Indian Rupee'],
-  ['CHF', 'CHF (Fr) — Swiss Franc'],
+  ['USD', 'USD ($) - US Dollar'],
+  ['IDR', 'IDR (Rp) - Indonesian Rupiah'],
+  ['JPY', 'JPY (¥) - Japanese Yen'],
+  ['KRW', 'KRW (₩) - South Korean Won'],
+  ['TWD', 'TWD (NT$) - New Taiwan Dollar'],
+  ['SGD', 'SGD (S$) - Singapore Dollar'],
+  ['MYR', 'MYR (RM) - Malaysian Ringgit'],
+  ['EUR', 'EUR (€) - Euro'],
+  ['GBP', 'GBP (£) - British Pound'],
+  ['BRL', 'BRL (R$) - Brazilian Real'],
+  ['AUD', 'AUD (A$) - Australian Dollar'],
+  ['CAD', 'CAD (C$) - Canadian Dollar'],
+  ['PHP', 'PHP (₱) - Philippine Peso'],
+  ['THB', 'THB (฿) - Thai Baht'],
+  ['VND', 'VND (₫) - Vietnamese Dong'],
+  ['CNY', 'CNY (¥) - Chinese Yuan'],
+  ['HKD', 'HKD (HK$) - Hong Kong Dollar'],
+  ['MXN', 'MXN (MX$) - Mexican Peso'],
+  ['INR', 'INR (₹) - Indian Rupee'],
+  ['CHF', 'CHF (Fr) - Swiss Franc'],
 ];
+
+const LANG_DEFAULT_CURRENCY = {
+  en: 'USD',
+  id: 'IDR',
+  ja: 'JPY',
+  ko: 'KRW',
+  'zh-CN': 'CNY',
+  'zh-TW': 'TWD',
+  es: 'USD',
+  'pt-BR': 'BRL',
+};
+const QUICK_CURRENCY_PILLS = ['USD', 'IDR', 'JPY', 'KRW', 'EUR', 'GBP', 'BRL', 'SGD'];
 
 const AVATAR_COLORS = ['#0071e3', '#1d1d1f', '#34c759', '#ff9500', '#af52de', '#ff2d55', '#0a84ff', '#5856d6'];
 
@@ -72,6 +84,7 @@ let rAFStarted = false;
 // Onboarding wizard state
 let obStep = 0;
 let obIsAddingAnother = false;
+let obCurrencyTouched = false;
 const obState = {
   language: 'en',
   name: '',
@@ -334,6 +347,13 @@ function renderOnboardingLangCards() {
       word.lang = l.code;
       word.style.opacity = '1';
       word.style.transform = 'translateY(0)';
+      if (!obCurrencyTouched) {
+        const suggested = LANG_DEFAULT_CURRENCY[l.code] || 'USD';
+        obState.baseCurrency = suggested;
+        $('obBaseCurrency').value = suggested;
+        renderOnboardingQuickCurrencies();
+        updateOnboardingCurrencyPreview();
+      }
       startHelloCycle(i);
       renderOnboardingLangCards();
       renderOnboardingStepChrome(null);
@@ -359,9 +379,31 @@ function renderOnboardingSwatches() {
   }
 }
 
+function renderOnboardingQuickCurrencies() {
+  const row = $('obCurQuickRow');
+  if (!row) return;
+  const activeCur = $('obBaseCurrency').value || obState.baseCurrency || 'USD';
+  row.replaceChildren();
+  for (const code of QUICK_CURRENCY_PILLS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `btn btn-pill btn-sm${activeCur === code ? ' btn-primary' : ''}`;
+    b.dataset.obQuickCur = code;
+    b.textContent = code;
+    b.addEventListener('click', () => {
+      obCurrencyTouched = true;
+      $('obBaseCurrency').value = code;
+      renderOnboardingQuickCurrencies();
+      updateOnboardingCurrencyPreview();
+    });
+    row.append(b);
+  }
+}
+
 async function updateOnboardingCurrencyPreview() {
   const cur = $('obBaseCurrency').value || 'USD';
   obState.baseCurrency = cur;
+  renderOnboardingQuickCurrencies();
   const r = await api(`/api/currency-presets?currency=${encodeURIComponent(cur)}`);
   if (r.ok && r.data?.rules) {
     const tiers = r.data.rules.tiers.map((ti) => `${fmtMoney(ti.minimumAmount, cur, obState.language)} → +${fmtDuration(ti.creditMs)}`).join('   ·   ');
@@ -430,7 +472,7 @@ function renderOnboardingStep5Setup() {
     tCard.innerHTML = `
       <div class="ob-plat-head">
         <strong>Public Webhook URL (Required for Webhook Platforms)</strong>
-        <span class="pill ${hasPublicUrl ? 'pill-ok' : 'pill-warn'}">${hasPublicUrl ? 'Public HTTPS Active ✓' : 'Local Only — Start Tunnel'}</span>
+        <span class="pill ${hasPublicUrl ? 'pill-ok' : 'pill-warn'}">${hasPublicUrl ? 'Public HTTPS Active ✓' : 'Local Only, Start Tunnel'}</span>
       </div>
       <div class="helper-text">${hasPublicUrl
         ? `Your live public HTTPS address is ready: <code>${tunnel.publicUrl}</code>. Copy each platform's Webhook URL below and paste it into your creator dashboard.`
@@ -547,6 +589,7 @@ function renderOnboardingStepChrome(animateDir = null) {
 
 function openOnboarding({ addingAnother = false } = {}) {
   obIsAddingAnother = addingAnother;
+  obCurrencyTouched = false;
   obStep = 0;
   obState.language = addingAnother ? getLanguage() : 'en';
   obState.name = '';
@@ -574,6 +617,7 @@ function openOnboarding({ addingAnother = false } = {}) {
   $('obObsIllustration').innerHTML = OBS_GUIDE_SVG;
   $('obHelloMark').innerHTML = APP_MARK_SVG;
   populateCurrencySelect($('obBaseCurrency'), 'USD', false);
+  renderOnboardingQuickCurrencies();
   renderOnboardingLangCards();
   renderOnboardingSwatches();
   renderOnboardingDonationCatalog();
@@ -690,6 +734,7 @@ async function hydrateActiveWorkspace() {
   populateCurrencySelect($('donoCurrency'), activeProfile.baseCurrency, true);
   populateCurrencySelect($('simSlCur'), activeProfile.baseCurrency, true);
   populateCurrencySelect($('simWhCur'), activeProfile.baseCurrency, true);
+  populateCurrencySelect($('setBaseCurSelect'), activeProfile.baseCurrency, false);
   populateLanguageSelect($('setLangSelect'), activeProfile.language);
   $('hkToggle').value = bootData.hotkeys?.toggle || 'CommandOrControl+Shift+Space';
   $('hkAdd1').value = bootData.hotkeys?.add1m || 'CommandOrControl+Shift+Up';
@@ -732,7 +777,7 @@ async function hydrateActiveWorkspace() {
       },
       onActivity: (ev) => {
         if (ev && ev.matchStatus === 'unmatched_fallback' && ev.rawLevelName) {
-          showToast(`New YouTube tier detected: "${ev.rawLevelName}" — applied as ${ev.fallbackLevelName || 'Default'}. Map it in 1 click inside Settings → YouTube Catalog.`, 7500);
+          showToast(`New YouTube tier detected: "${ev.rawLevelName}", applied as ${ev.fallbackLevelName || 'Default'}. Map it in 1 click inside Settings → YouTube Catalog.`, 7500);
           loadRules();
         } else if (ev && ev.kind === 'yt_level_resolved') {
           loadRules();
@@ -856,7 +901,7 @@ async function loadHome() {
     $('homePrevNet').textContent = fmtMoney(h.lastArchivedSession.netAmount, cur);
   } else {
     $('homePrevLabel').textContent = 'No archived cycle yet';
-    $('homePrevNet').textContent = '—';
+    $('homePrevNet').textContent = '-';
   }
 
   // Latest 4 activity cards
@@ -1350,12 +1395,68 @@ async function resolveYoutubeLevelAction(payload) {
   return true;
 }
 
+function computeSampleCreditMs(amount, mode, tiers) {
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0 || !Array.isArray(tiers) || tiers.length === 0) return 0;
+  const sorted = [...tiers].sort((a, b) => b.minimumAmount - a.minimumAmount);
+  if (mode === 'greedy') {
+    let remCents = Math.round(amt * 100);
+    let total = 0;
+    for (const ti of sorted) {
+      const minCents = Math.round(ti.minimumAmount * 100);
+      if (minCents > 0 && remCents >= minCents) {
+        const cnt = Math.floor(remCents / minCents);
+        total += cnt * ti.creditMs;
+        remCents -= cnt * minCents;
+      }
+    }
+    return total;
+  }
+  for (const ti of sorted) {
+    if (amt + 1e-9 >= ti.minimumAmount) return ti.creditMs;
+  }
+  return 0;
+}
+
+function renderRulesModePreview() {
+  const box = $('rulesModePreview');
+  if (!box || !draftRules) return;
+  const cur = draftRules.baseCurrency || getCurrency();
+  const tiers = draftRules.tiers || [];
+  if (tiers.length === 0) {
+    box.textContent = 'Add at least one tier to preview how donations add time.';
+    return;
+  }
+  const lowest = [...tiers].sort((a, b) => a.minimumAmount - b.minimumAmount)[0];
+  const sampleAmt = lowest.minimumAmount * 5;
+  const curMode = $('rulesMode').value;
+  const curMs = computeSampleCreditMs(sampleAmt, curMode, tiers);
+  const stackMs = computeSampleCreditMs(sampleAmt, 'greedy', tiers);
+  if (curMode === 'threshold' && stackMs > curMs) {
+    box.innerHTML = `<strong>Live example:</strong> A <strong>${fmtMoney(sampleAmt, cur)}</strong> gift adds <strong class="text-accent">+${fmtDuration(curMs)}</strong> (single tier only). Switch to <strong>Stack Multiples</strong> for <strong>+${fmtDuration(stackMs)}</strong>.`;
+  } else if (curMode === 'greedy') {
+    box.innerHTML = `<strong>Live example:</strong> A <strong>${fmtMoney(sampleAmt, cur)}</strong> gift adds <strong class="text-accent">+${fmtDuration(curMs)}</strong> (stacks multiples automatically).`;
+  } else {
+    box.innerHTML = `<strong>Live example:</strong> A <strong>${fmtMoney(sampleAmt, cur)}</strong> gift adds <strong class="text-accent">+${fmtDuration(curMs)}</strong>.`;
+  }
+}
+
+function setRulesAutoSavedState(state) {
+  for (const id of ['rulesAutoSavedPill', 'triggersAutoSavedPill']) {
+    const el = $(id);
+    if (!el) continue;
+    el.className = state === 'saving' ? 'pill' : 'pill pill-ok';
+    el.textContent = state === 'saving' ? 'Saving…' : 'Auto-saved ✓';
+  }
+}
+
 function renderRulesUi() {
   if (!draftRules) return;
   const cur = draftRules.baseCurrency || getCurrency();
-  $('rulesCurBadge').textContent = cur;
+  $('rulesCurBadge').textContent = `${cur} · Change`;
   $('newTierMinLbl').textContent = `Minimum Gift (${cur})`;
   $('rulesMode').value = draftRules.mode;
+  renderRulesModePreview();
   const list = $('rulesTierList');
   list.replaceChildren();
   for (const ti of draftRules.tiers) {
@@ -1456,6 +1557,7 @@ function renderCatalogsUi() {
 async function saveRulesToServer(toastMsg = 'Saved rules', silent = false) {
   if (!draftRules) return;
   if (rulesSaveTimer) { clearTimeout(rulesSaveTimer); rulesSaveTimer = null; }
+  setRulesAutoSavedState('saving');
   draftRules.mode = $('rulesMode').value;
   draftRules.eventRules.timerTriggers = {
     cashTips: $('trCashTips').checked,
@@ -1494,6 +1596,7 @@ async function saveRulesToServer(toastMsg = 'Saved rules', silent = false) {
     }
     renderRulesUi();
     renderCatalogsUi();
+    setRulesAutoSavedState('saved');
     if (!silent && toastMsg) showToast(toastMsg);
   }
 }
@@ -1653,7 +1756,7 @@ async function loadIntegrations() {
       const inp = document.createElement('input');
       inp.type = f.type || 'password';
       inp.dataset.credKey = f.key;
-      inp.placeholder = cfg.hasCredentials ? '•••••••• (saved — enter new to replace)' : (f.placeholder || '');
+      inp.placeholder = cfg.hasCredentials ? '•••••••• (saved, enter new to replace)' : (f.placeholder || '');
       if (f.key === 'username' && cfg.username) inp.value = cfg.username;
       if (f.key === 'channelId' && cfg.channelId) inp.value = cfg.channelId;
       lbl.append(inp);
@@ -1738,7 +1841,7 @@ async function loadIntegrations() {
       row.style.marginTop = '4px';
       const inp = document.createElement('input');
       inp.type = 'password';
-      inp.placeholder = cfg.hasCredentials ? '•••••••• (Token saved — enter new to replace)' : (plat.secretPlaceholder || 'Paste Webhook Token (optional)');
+      inp.placeholder = cfg.hasCredentials ? '•••••••• (Token saved, enter new to replace)' : (plat.secretPlaceholder || 'Paste Webhook Token (optional)');
       inp.setAttribute('aria-label', `${plat.name} ${plat.secretLabel || 'Webhook Token'}`);
       inp.style.cssText = 'flex:1;min-width:140px;height:31px;padding:0 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-size:12px;';
       const saveBtn = document.createElement('button');
@@ -1768,7 +1871,7 @@ async function loadIntegrations() {
       const note = document.createElement('div');
       note.className = 'helper-text';
       note.style.fontSize = '11.5px';
-      note.textContent = 'No extra secret needed — this URL already embeds your private per-profile token.';
+      note.textContent = 'No extra secret needed, this URL already embeds your private per-profile token.';
       secWrap.append(note);
     }
 
@@ -1843,6 +1946,8 @@ function renderFxRatesList() {
   const fx = bootData?.fx;
   if (!fx) return;
   const baseCur = getCurrency();
+  if ($('setBaseCurSelect')) $('setBaseCurSelect').value = baseCur;
+  if ($('setBaseCurBadge')) $('setBaseCurBadge').textContent = baseCur;
   const rates = fx.ratesPerUsd || {};
   const count = Object.keys(rates).length;
   $('fxAutoChk').checked = fx.autoUpdate !== false;
@@ -1850,7 +1955,7 @@ function renderFxRatesList() {
   $('fxStatusBadge').textContent = fx.lastUpdatedAtMs > 0 ? 'Auto Live' : 'Baseline';
   $('fxInfoBox').textContent = fx.lastUpdatedAtMs > 0
     ? `Base: ${baseCur} · ${count} currencies via ${fx.provider} · Updated ${fmtDateTime(fx.lastUpdatedAtMs)}`
-    : `Base: ${baseCur} · ${count} baseline currencies — click Update Rates Now`;
+    : `Base: ${baseCur} · ${count} baseline currencies, click Update Rates Now`;
 
   const term = $('fxSearchIn').value.trim().toUpperCase();
   const codes = Object.keys(rates).filter((c) => c !== baseCur && (!term || c.includes(term))).sort();
@@ -1876,7 +1981,10 @@ function bindAllEvents() {
   $('splashMark').innerHTML = APP_MARK_SVG;
 
   // Onboarding navigation
-  $('obBaseCurrency').addEventListener('change', updateOnboardingCurrencyPreview);
+  $('obBaseCurrency').addEventListener('change', () => {
+    obCurrencyTouched = true;
+    updateOnboardingCurrencyPreview();
+  });
   $('obCancelAddBtn').addEventListener('click', () => {
     if (helloTimer) { clearInterval(helloTimer); helloTimer = null; }
     $('onboardingRoot').hidden = true;
@@ -2239,8 +2347,11 @@ function bindAllEvents() {
   ['trCashTips', 'trYtSc', 'trYtMem', 'trYtGift', 'trYtJewels', 'trTwSub', 'trTwPrime', 'trTwGift', 'trTwBits'].forEach((id) => {
     $(id)?.addEventListener('change', () => saveRulesToServer('Saved timer trigger'));
   });
-  $('saveRulesBtn').addEventListener('click', () => saveRulesToServer('Saved donation tiers'));
-  $('saveTriggersBtn').addEventListener('click', () => saveRulesToServer('Saved timer triggers'));
+  $('rulesCurBadge')?.addEventListener('click', () => {
+    switchView('settings');
+    document.querySelector('[data-set-tab="currency"]')?.click();
+    $('setBaseCurSelect')?.focus();
+  });
   // Global 1-click YouTube/Twitch Catalog jumps & native Tauri external browser opener
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-open-yt-catalog]')) {
@@ -2460,6 +2571,20 @@ function bindAllEvents() {
       showToast(`Updated ${r.data.currencyCount} live rates (${r.data.provider})`);
     } else showToast('FX update failed');
   });
+  $('setBaseCurApplyBtn')?.addEventListener('click', async () => {
+    if (!activeProfile) return;
+    const nextCur = $('setBaseCurSelect').value || activeProfile.baseCurrency;
+    const resetCurrencyPresets = Boolean($('setBaseCurResetChk')?.checked);
+    const r = await api(`/api/profiles/${encodeURIComponent(activeProfile.id)}`, {
+      method: 'PATCH',
+      body: { baseCurrency: nextCur, resetCurrencyPresets },
+    });
+    if (r.ok) {
+      if ($('setBaseCurResetChk')) $('setBaseCurResetChk').checked = false;
+      await hydrateActiveWorkspace();
+      showToast(`Operating currency updated to ${nextCur}`);
+    }
+  });
   $('fxSaveBtn').addEventListener('click', async () => {
     const r = await api('/api/fx', { method: 'PUT', body: { autoUpdate: $('fxAutoChk').checked, intervalHours: Number($('fxIntSel').value) } });
     if (r.ok) { bootData.fx = r.data.fx; renderFxRatesList(); showToast('Saved FX settings'); }
@@ -2486,7 +2611,7 @@ function bindAllEvents() {
   $('setCloseToTrayChk').addEventListener('change', () => saveDesktopPrefs('Saved tray preference'));
   $('saveDesktopBtn').addEventListener('click', () => saveDesktopPrefs('Saved desktop preferences'));
 
-  // Built-in Software Update actions (clean Apple toggles — zero GitHub URL exposed)
+  // Built-in Software Update actions (clean Apple toggles, zero GitHub URL exposed)
   $('popUpdateBtn').addEventListener('click', () => {
     toggleProfilePopover(false);
     switchView('settings');
@@ -2519,7 +2644,7 @@ function bindAllEvents() {
     await flushAllPendingSaves().catch(() => {});
     const stRes = await api('/api/updates/status');
     if (stRes.ok && stRes.data?.isTimerRunning) {
-      showToast('Timer is currently running — pause the timer first before installing the update.');
+      showToast('Timer is currently running, pause the timer first before installing the update.');
       return;
     }
     $('updInstallBtn').disabled = true;
@@ -2603,7 +2728,7 @@ async function boot() {
       localStorage.setItem('st_last_seen_version', curVer);
       if (prevVer && prevVer !== curVer) {
         setTimeout(() => {
-          showToast(`Updated to v${curVer}! OBS Browser Source auto-refreshed — if your overlay looks stale, click Refresh Cache in OBS.`, 7500);
+          showToast(`Updated to v${curVer}! OBS Browser Source auto-refreshed, if your overlay looks stale, click Refresh Cache in OBS.`, 7500);
         }, 520);
       }
     } catch { /* ignore storage errors */ }

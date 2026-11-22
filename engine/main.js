@@ -1,4 +1,4 @@
-// Stream Timer Desktop — 100% Local Native Engine (HTTP + SSE + SQLite WAL + Live Sockets).
+// Stream Timer Desktop, 100% Local Native Engine (HTTP + SSE + SQLite WAL + Live Sockets).
 //
 // Binds strictly to 127.0.0.1. Serves the Apple UI to Tauri WebView2 (or local
 // browser), serves OBS Browser Source at /source, manages isolated per-profile

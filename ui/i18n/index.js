@@ -63,7 +63,7 @@ export function fmtMoney(amount, currency = activeCurrency, lang = activeLang) {
 }
 
 export function fmtDateTime(ms, { full = false } = {}) {
-  if (!ms || ms <= 0) return '—';
+  if (!ms || ms <= 0) return '-';
   return new Date(ms).toLocaleString(getIntlLocale(), full
     ? { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }
     : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });

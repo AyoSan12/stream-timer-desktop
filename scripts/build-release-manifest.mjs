@@ -27,7 +27,7 @@ const downloadUrl = argVal(
   '--url',
   `https://github.com/AyoSan12/stream-timer-desktop/releases/download/v${version}/Stream-Timer.exe`,
 );
-const notes = argVal('--notes', `Stream Timer v${version} — Native Windows Release`);
+const notes = argVal('--notes', `Stream Timer v${version}, Native Windows Release`);
 
 const manifest = {
   version,

@@ -104,8 +104,17 @@ cases.push({
     await page.locator('#obLangGrid button', { hasText: 'English' }).click();
     assert((await page.locator('#obNextBtn').textContent()).includes('Get Started'), 'English restored cleanly');
 
+    // Verify smart language -> currency suggestion (ID -> IDR, then quick-pick USD)
+    await page.locator('#obLangGrid button', { hasText: 'Bahasa Indonesia' }).click();
+    eq(await page.locator('#obBaseCurrency').inputValue(), 'IDR', 'Selecting Bahasa Indonesia auto-suggests IDR');
+    await page.locator('#obLangGrid button', { hasText: 'English' }).click();
+    eq(await page.locator('#obBaseCurrency').inputValue(), 'USD', 'Selecting English auto-suggests USD');
+
     // Step 0 -> Step 1 (Profile & Currency)
     await page.locator('#obNextBtn').click();
+    await page.locator('#obCurQuickRow button', { hasText: 'IDR' }).click();
+    eq(await page.locator('#obBaseCurrency').inputValue(), 'IDR', 'Quick currency pill IDR works');
+    await page.locator('#obCurQuickRow button', { hasText: 'USD' }).click();
     await page.fill('#obProfName', 'Alex Global');
     await page.fill('#obProfHandle', '@alexlive');
     await page.selectOption('#obBaseCurrency', 'USD');
@@ -269,8 +278,27 @@ cases.push({
     await page.locator('#nav-timer').click();
     await page.waitForTimeout(120);
     await page.locator('[data-timer-tab="tiers"]').click();
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(120);
     assert(await page.locator('#timerPanelTiers').isVisible(), 'Timer -> Donation Tiers sub-tab opens cleanly');
+    const previewTxt = await page.locator('#rulesModePreview').textContent();
+    assert(previewTxt.includes('Live example:') && previewTxt.includes('Stack Multiples'), 'Donation Tiers shows clear human-language Live example');
+    await page.screenshot({ path: path.join(evDir, '17-timer-tiers-live-preview-dark.png') });
+
+    // Click currency badge in Donation Tiers -> jumps directly to Settings -> Currency & FX with Operating Base Currency card!
+    await page.locator('#rulesCurBadge').click();
+    await page.waitForTimeout(140);
+    assert(await page.locator('#setBaseCurCard').isVisible(), 'Clicking currency pill jumps straight to Operating Base Currency card');
+    await page.screenshot({ path: path.join(evDir, '18-settings-currency-switcher-dark.png') });
+    await page.selectOption('#setBaseCurSelect', 'EUR');
+    await page.locator('#setBaseCurApplyBtn').click();
+    await page.waitForTimeout(350);
+    eq(await page.locator('#setBaseCurBadge').textContent(), 'EUR', 'Applied EUR operating currency from Settings -> Currency & FX');
+    await page.selectOption('#setBaseCurSelect', 'USD');
+    await page.locator('#setBaseCurApplyBtn').click();
+    await page.waitForTimeout(300);
+
+    await page.locator('#nav-timer').click();
+    await page.waitForTimeout(100);
     await page.locator('[data-timer-tab="triggers"]').click();
     await page.waitForTimeout(100);
     assert(await page.locator('#timerPanelTriggers').isVisible(), 'Timer -> Triggers sub-tab opens cleanly');

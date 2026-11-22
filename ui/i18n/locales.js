@@ -79,7 +79,7 @@ export const LOCALES = {
     'ob.dono.title': 'Choose Your Donation Platforms',
     'ob.dono.sub': 'Pick the global or regional tipping services you use. Country badges show where each platform operates.',
     'ob.setup.title': 'Configure Selected Platforms',
-    'ob.setup.sub': 'Streamlabs is ready. Configure any extra platforms now — or adjust them anytime in Integrations.',
+    'ob.setup.sub': 'Streamlabs is ready. Configure any extra platforms now, or adjust them anytime in Integrations.',
     'ob.setup.finish': 'Launch Workspace',
     'ob.setup.obsNote': 'Your private local OBS Browser Source URL will be ready immediately inside Home & OBS tabs.',
     // Profile Popover
@@ -261,7 +261,7 @@ export const LOCALES = {
     'ob.dono.title': 'Pilih Platform Donasi Anda',
     'ob.dono.sub': 'Pilih layanan donasi lokal atau internasional yang Anda gunakan. Tanda negara menunjukkan wilayah layanan.',
     'ob.setup.title': 'Pengaturan Platform Terpilih',
-    'ob.setup.sub': 'Streamlabs siap. Atur kredensial platform tambahan di bawah — atau ubah kapan saja di Integrasi.',
+    'ob.setup.sub': 'Streamlabs siap. Atur kredensial platform tambahan di bawah, atau ubah kapan saja di Integrasi.',
     'ob.setup.finish': 'Buka Aplikasi',
     'ob.setup.obsNote': 'URL OBS Browser Source lokal Anda langsung siap dipakai di tab Beranda & OBS.',
     'prof.active': 'Profil Aktif',

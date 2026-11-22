@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Stream Timer — OBS Source</title>
+<title>Stream Timer | OBS Source</title>
 <link rel="stylesheet" href="/source.css">
 </head>
 <body data-bg="dark">
@@ -95,7 +95,7 @@ const link = createTimerLink({
     const ver = info && typeof info.appVersion === 'string' ? info.appVersion : '';
     if (!ver) return;
     if (knownAppVersion && knownAppVersion !== ver) {
-      // Stream Timer updated to a new version — auto-reload OBS Browser Source cleanly!
+      // Stream Timer updated to a new version | auto-reload OBS Browser Source cleanly!
       window.location.reload();
       return;
     }

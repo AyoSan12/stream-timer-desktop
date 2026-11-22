@@ -99,6 +99,7 @@
           <div class="row-2">
             <label class="field"><span data-i18n="ob.profile.currency">Operating Base Currency</span>
               <select id="obBaseCurrency"></select>
+              <div id="obCurQuickRow" class="btn-row" style="gap:6px;flex-wrap:wrap;margin-top:4px;" aria-label="Quick currency shortcuts"></div>
             </label>
             <div class="field">
               <span data-i18n="ob.profile.color">Profile Accent</span>
@@ -149,7 +150,7 @@
           </button>
         </div>
         <div id="obYtHintWrap" class="card" style="padding:12px 16px;margin-bottom:10px;">
-          <strong style="font-size:12.5px;display:block;margin-bottom:3px;">YouTube Memberships — Smart Auto-Detection</strong>
+          <strong style="font-size:12.5px;display:block;margin-bottom:3px;">YouTube Memberships: Smart Auto-Detection</strong>
           <span class="helper-text">Membership tiers are pre-configured for your currency and can be customized anytime in Settings → YouTube Catalog. Unrecognized live tiers are auto-detected for 1-click mapping with zero dropped events.</span>
         </div>
         <div id="obTwSplitWrap" class="card" style="padding:14px 16px;" hidden>
@@ -173,7 +174,7 @@
       <!-- Step 5: Tailored Guided Setup & Launch -->
       <div id="obStep5" class="ob-panel" hidden>
         <h2 class="ob-title" data-i18n="ob.setup.title">Configure Selected Platforms</h2>
-        <p class="ob-sub" style="margin-bottom:10px;" data-i18n="ob.setup.sub">Streamlabs is ready. Configure any extra platforms now — or adjust them anytime in Integrations.</p>
+        <p class="ob-sub" style="margin-bottom:10px;" data-i18n="ob.setup.sub">Streamlabs is ready. Configure any extra platforms now, or adjust them anytime in Integrations.</p>
         <div id="obSetupCards" class="ob-setup-list"></div>
         <div id="obObsIllustration" style="margin-top:10px;"></div>
         <p class="helper-text" style="margin-top:6px;" data-i18n="ob.setup.obsNote">Your private local OBS Browser Source URL will be ready immediately inside Home &amp; OBS tabs.</p>
@@ -343,9 +344,9 @@
           <div class="rev-pulse-prev">
             <div>
               <div style="font-size:11px;color:var(--muted);" data-i18n="home.lastArchived">Last Archived Cycle</div>
-              <strong id="homePrevLabel">—</strong>
+              <strong id="homePrevLabel">-</strong>
             </div>
-            <strong id="homePrevNet" style="font-family:var(--font-mono);">—</strong>
+            <strong id="homePrevNet" style="font-family:var(--font-mono);">-</strong>
           </div>
         </section>
 
@@ -468,15 +469,21 @@
 
       <div id="timerPanelTiers" class="grid-2" hidden>
         <section class="card">
-          <div class="card-head"><h2 class="card-title">Active Tiers</h2><span id="rulesCurBadge" class="pill">USD</span></div>
-          <label class="field" style="margin-bottom:10px;">Matching Mode
-            <select id="rulesMode"><option value="threshold">Threshold (highest matched tier)</option><option value="greedy">Greedy (stack multiples)</option></select>
-          </label>
-          <div id="rulesTierList" class="stack-sm" style="margin-bottom:12px;"></div>
-          <div class="btn-row">
-            <button id="saveRulesBtn" type="button" class="btn btn-primary btn-pill" data-i18n="rules.save">Save Rules</button>
-            <span class="helper-text" style="margin:0;">Changes auto-save automatically</span>
+          <div class="card-head">
+            <h2 class="card-title">Active Tiers</h2>
+            <div class="btn-row">
+              <span id="rulesAutoSavedPill" class="pill pill-ok">Auto-saved ✓</span>
+              <button id="rulesCurBadge" type="button" class="pill" style="cursor:pointer;" title="Change operating currency">USD · Change</button>
+            </div>
           </div>
+          <label class="field" style="margin-bottom:8px;">How Donations Add Time
+            <select id="rulesMode">
+              <option value="greedy">Stack Multiples (e.g. $5 = 5x of $1 tier)</option>
+              <option value="threshold">Single Highest Tier (no stacking)</option>
+            </select>
+          </label>
+          <div id="rulesModePreview" class="mono-box" style="margin-bottom:10px;font-family:var(--font-body);font-size:12px;color:var(--fg-2);word-break:normal;overflow-wrap:break-word;"></div>
+          <div id="rulesTierList" class="stack-sm"></div>
         </section>
         <section class="card">
           <div class="card-head"><h2 class="card-title">Add / Update Tier</h2></div>
@@ -499,7 +506,7 @@
               <h2 class="card-title">Timer Triggers</h2>
               <p class="helper-text" style="margin:2px 0 0;">Choose which platform events extend the countdown. Changes save automatically.</p>
             </div>
-            <button id="saveTriggersBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="rules.saveTriggers">Save Timer Triggers</button>
+            <span id="triggersAutoSavedPill" class="pill pill-ok">Auto-saved ✓</span>
           </div>
           <div class="row-2">
             <div class="stack-sm">
@@ -1000,20 +1007,40 @@
       </div>
 
       <div id="setPanelCurrency" class="grid-2" hidden>
-        <section class="card">
-          <div class="card-head"><h2 class="card-title" data-i18n="set.fxTitle">Exchange Rate Engine</h2><span id="fxStatusBadge" class="pill pill-ok">Auto Live</span></div>
-          <div class="stack-sm">
-            <label class="toggle-row"><span data-i18n="set.fxAuto">Auto-Update Live Currency Rates</span><input id="fxAutoChk" type="checkbox" checked></label>
-            <label class="field">Refresh Interval
-              <select id="fxIntSel"><option value="1">Every 1 hour</option><option value="6" selected>Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Every 24 hours</option></select>
-            </label>
-            <div id="fxInfoBox" class="mono-box"></div>
-            <div class="btn-row">
-              <button id="fxNowBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="set.fxUpdateNow">Update Rates Now</button>
-              <button id="fxSaveBtn" type="button" class="btn btn-pill btn-sm" data-i18n="common.save">Save</button>
+        <div class="stack">
+          <section id="setBaseCurCard" class="card">
+            <div class="card-head">
+              <h2 class="card-title">Operating Base Currency</h2>
+              <span id="setBaseCurBadge" class="pill pill-accent">USD</span>
             </div>
-          </div>
-        </section>
+            <div class="stack-sm">
+              <label class="field">Profile Currency
+                <select id="setBaseCurSelect"></select>
+              </label>
+              <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);">
+                <input id="setBaseCurResetChk" type="checkbox">
+                Reset tier &amp; fee presets to this currency's defaults
+              </label>
+              <div class="btn-row">
+                <button id="setBaseCurApplyBtn" type="button" class="btn btn-primary btn-pill btn-sm">Apply Currency</button>
+              </div>
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2 class="card-title" data-i18n="set.fxTitle">Exchange Rate Engine</h2><span id="fxStatusBadge" class="pill pill-ok">Auto Live</span></div>
+            <div class="stack-sm">
+              <label class="toggle-row"><span data-i18n="set.fxAuto">Auto-Update Live Currency Rates</span><input id="fxAutoChk" type="checkbox" checked></label>
+              <label class="field">Refresh Interval
+                <select id="fxIntSel"><option value="1">Every 1 hour</option><option value="6" selected>Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Every 24 hours</option></select>
+              </label>
+              <div id="fxInfoBox" class="mono-box"></div>
+              <div class="btn-row">
+                <button id="fxNowBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="set.fxUpdateNow">Update Rates Now</button>
+                <button id="fxSaveBtn" type="button" class="btn btn-pill btn-sm" data-i18n="common.save">Save</button>
+              </div>
+            </div>
+          </section>
+        </div>
         <section class="card">
           <div class="card-head">
             <h2 class="card-title" data-i18n="set.fxRatesTitle">Live Cross-Rates</h2>

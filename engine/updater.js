@@ -1,6 +1,6 @@
 // Built-In Software Updater (GitHub Releases + Semver + SHA-256 + Pre-Update Backup).
 //
-// Official feed URL is baked in directly — users only see clean Auto-Update toggles.
+// Official feed URL is baked in directly, users only see clean Auto-Update toggles.
 
 import fs from 'node:fs';
 import path from 'node:path';

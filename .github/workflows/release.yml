@@ -28,7 +28,7 @@ jobs:
             $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
             $names = @($rel.assets | ForEach-Object { $_.name })
             if (($names -contains "Stream-Timer-Setup.exe") -and ($names -contains "Stream-Timer.exe") -and ($names -contains "latest.json")) {
-              Write-Host "Release $tag already has Setup, Portable, and latest.json published — skipping CI overwrite."
+              Write-Host "Release $tag already has Setup, Portable, and latest.json published, skipping CI overwrite."
               "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
               exit 0
             }
@@ -71,7 +71,7 @@ jobs:
           $ver = $tag.TrimStart("v")
           Copy-Item "Stream Timer.exe" "Stream-Timer.exe" -Force
           $dlUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/Stream-Timer.exe"
-          node scripts/build-release-manifest.mjs --version "$ver" --url "$dlUrl" --notes "Stream Timer $tag — Automated Windows Release"
+          node scripts/build-release-manifest.mjs --version "$ver" --url "$dlUrl" --notes "Stream Timer $tag, Automated Windows Release"
 
       - name: Publish GitHub Release
         if: steps.check_existing.outputs.skip != 'true'

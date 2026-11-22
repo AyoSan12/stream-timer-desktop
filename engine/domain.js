@@ -416,7 +416,7 @@ export function matchYoutubeLevel(rawLevelName, ytLevels = []) {
     }
   }
 
-  // Stage 4: Conservative typo guard — NEVER auto-correct across different digits (e.g. "Tier 1" vs "Tier 2")
+  // Stage 4: Conservative typo guard, NEVER auto-correct across different digits (e.g. "Tier 1" vs "Tier 2")
   if (normRaw.length >= 5) {
     const rawDigits = extractDigits(normRaw);
     const fuzzyHits = [];

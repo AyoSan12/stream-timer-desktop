@@ -300,7 +300,7 @@ export function verifyStreamlabsToken(socketToken, {
 } = {}) {
   const token = typeof socketToken === 'string' ? socketToken.trim() : '';
   if (!token || token.length < 10) {
-    return Promise.resolve({ ok: false, error: 'Token looks too short — paste your full Streamlabs Socket API Token.' });
+    return Promise.resolve({ ok: false, error: 'Token looks too short, paste your full Streamlabs Socket API Token.' });
   }
   if (typeof WebSocket !== 'function') {
     return Promise.resolve({ ok: false, error: 'WebSocket runtime unavailable' });
@@ -315,7 +315,7 @@ export function verifyStreamlabsToken(socketToken, {
       if (ws) { try { ws.close(); } catch { /* ignore */ } }
       resolve(result);
     };
-    const timer = setTimeout(() => done({ ok: false, error: 'Connection timed out — check token or internet access' }), timeoutMs);
+    const timer = setTimeout(() => done({ ok: false, error: 'Connection timed out, check token or internet access' }), timeoutMs);
 
     try {
       const base = socketBaseUrl.replace(/\/+$/, '');
@@ -331,7 +331,7 @@ export function verifyStreamlabsToken(socketToken, {
       });
       ws.addEventListener('error', () => done({ ok: false, error: 'Could not reach sockets.streamlabs.com' }));
       ws.addEventListener('close', (ev) => {
-        if (!settled) done({ ok: false, error: `Streamlabs closed connection (code ${ev.code}) — invalid token` });
+        if (!settled) done({ ok: false, error: `Streamlabs closed connection (code ${ev.code}), invalid token` });
       });
     } catch (err) {
       done({ ok: false, error: String(err && err.message || err) });

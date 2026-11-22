@@ -33,7 +33,7 @@ export const DONATION_PLATFORMS = [
     guideSteps: [
       'Open Streamlabs Dashboard → Settings → API Settings.',
       'Select the "API Tokens" tab at the top.',
-      'Copy "Your Socket API Token" and paste it below — connects directly from your PC.',
+      'Copy "Your Socket API Token" and paste it below, connects directly from your PC.',
     ],
   },
   {
@@ -295,7 +295,7 @@ export const DONATION_PLATFORMS = [
     dashboardUrl: 'https://www.donationalerts.com/application/clients',
     guideSteps: [
       'Open DonationAlerts Developer Portal → Create App & obtain OAuth Token (scope: oauth-donation-subscribe).',
-      'Paste your Access Token below — Stream Timer fetches your Centrifugo socket token and subscribes locally.',
+      'Paste your Access Token below, Stream Timer fetches your Centrifugo socket token and subscribes locally.',
     ],
   },
 
