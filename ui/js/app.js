@@ -82,12 +82,12 @@ const obState = {
 
 // -------------------------------------------------- Helpers -----------------
 
-function showToast(msg) {
+function showToast(msg, durationMs = 3200) {
   const el = $('toast');
   el.textContent = msg;
   if (toastTimer) clearTimeout(toastTimer);
   el.classList.add('toast-visible');
-  toastTimer = setTimeout(() => { toastTimer = null; el.classList.remove('toast-visible'); }, 3200);
+  toastTimer = setTimeout(() => { toastTimer = null; el.classList.remove('toast-visible'); }, durationMs);
 }
 
 async function api(url, { method = 'GET', body = null } = {}) {
@@ -2115,35 +2115,46 @@ function bindAllEvents() {
     $('updInstallBtn').disabled = true;
     $('updCheckBtn').disabled = true;
     const prevLbl = $('updInstallBtn').textContent;
-    $('updInstallBtn').textContent = 'Downloading & Verifying…';
-    showToast('Backing up profiles & verifying SHA-256 update…');
-    const dl = await api('/api/updates/download', { method: 'POST' });
-    if (!dl.ok) {
-      $('updInstallBtn').disabled = false;
-      $('updCheckBtn').disabled = false;
-      $('updInstallBtn').textContent = prevLbl;
-      if (dl.data?.status) renderUpdateStatus(dl.data.status);
-      showToast(`Update failed: ${dl.data?.error || dl.status}`);
-      return;
-    }
-    renderUpdateStatus(dl.data.status);
-    if (window.__TAURI_INTERNALS__?.invoke && dl.data.status?.stagedPath) {
-      $('updInstallBtn').textContent = 'Installing & Relaunching…';
-      showToast('Applying update & relaunching…');
-      window.__TAURI_INTERNALS__.invoke('apply_staged_update', { stagedPath: dl.data.status.stagedPath }).catch((err) => {
+
+    let stagedPath = (stRes.ok && stRes.data?.status === 'ready_to_install' && stRes.data?.stagedPath)
+      ? stRes.data.stagedPath
+      : '';
+
+    if (!stagedPath) {
+      $('updInstallBtn').textContent = 'Downloading & Verifying…';
+      showToast('Backing up profiles & verifying SHA-256 update…');
+      const dl = await api('/api/updates/download', { method: 'POST' });
+      if (!dl.ok) {
         $('updInstallBtn').disabled = false;
         $('updCheckBtn').disabled = false;
-        showToast(`Install error: ${String(err)}`);
+        $('updInstallBtn').textContent = prevLbl;
+        if (dl.data?.status) renderUpdateStatus(dl.data.status);
+        showToast(`Update failed: ${dl.data?.error || dl.status}`);
+        return;
+      }
+      renderUpdateStatus(dl.data.status);
+      stagedPath = dl.data.status?.stagedPath || '';
+    }
+
+    if (window.__TAURI_INTERNALS__?.invoke && stagedPath) {
+      $('updInstallBtn').textContent = 'Installing & Relaunching…';
+      showToast('Applying update & relaunching… OBS overlay will auto-reconnect.', 5000);
+      window.__TAURI_INTERNALS__.invoke('apply_staged_update', { stagedPath }).catch((err) => {
+        $('updInstallBtn').disabled = false;
+        $('updCheckBtn').disabled = false;
+        $('updInstallBtn').textContent = prevLbl;
+        showToast(`Install error: ${String(err)}`, 5000);
       });
     } else {
       $('updInstallBtn').disabled = false;
       $('updCheckBtn').disabled = false;
+      $('updInstallBtn').textContent = prevLbl;
       showToast('Update verified & staged (run inside Stream Timer.exe to auto-relaunch)');
     }
   });
 }
 
-// -------------------------------------------------- Apple Intro Launch ------
+// -------------------------------------------------- Intro Launch ------------
 
 async function boot() {
   initDesktopTitlebar();
@@ -2169,10 +2180,24 @@ async function boot() {
     await hydrateActiveWorkspace();
   }
 
-  // Smooth spring dissolve out of the Apple Splash screen
+  // Smooth spring dissolve out of the splash screen
   const splash = $('appleSplash');
   splash.classList.add('is-leaving');
   setTimeout(() => { splash.hidden = true; }, 440);
+
+  // Detect fresh update relaunch & notify user that OBS Browser Source auto-refreshed
+  const curVer = bootData?.appVersion || '';
+  if (curVer) {
+    try {
+      const prevVer = localStorage.getItem('st_last_seen_version');
+      localStorage.setItem('st_last_seen_version', curVer);
+      if (prevVer && prevVer !== curVer) {
+        setTimeout(() => {
+          showToast(`Updated to v${curVer}! OBS Browser Source auto-refreshed — if your overlay looks stale, click Refresh Cache in OBS.`, 7500);
+        }, 520);
+      }
+    } catch { /* ignore storage errors */ }
+  }
 }
 
 boot();

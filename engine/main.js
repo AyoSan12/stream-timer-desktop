@@ -45,6 +45,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(HERE, '..', 'ui');
 
 const HOST = '127.0.0.1';
+const ENGINE_BOOT_ID = crypto.randomUUID();
 const REQUESTED_PORT = process.env.STREAM_TIMER_PORT !== undefined
   ? Number(process.env.STREAM_TIMER_PORT)
   : (process.env.PORT !== undefined ? Number(process.env.PORT) : 47120);
@@ -555,6 +556,7 @@ const server = http.createServer(async (req, res) => {
         connection: 'keep-alive',
       });
       res.write('retry: 1500\n\n');
+      res.write(`event: hello\ndata: ${JSON.stringify({ appVersion: APP_VERSION, bootId: ENGINE_BOOT_ID })}\n\n`);
       addClient(res, { role, profileId: ctx?.profile?.id || null });
       if (ctx) {
         const snap = readSnapshot(ctx.db);

@@ -37,6 +37,7 @@ const totalVal = document.getElementById('totalVal');
 const creditToast = document.getElementById('creditToast');
 
 let snap = null;
+let knownAppVersion = null;
 let cfg = { timerName: 'Stream Timer', totalName: 'Total Added', showTimer: true, showTotal: true, showRush: true, bgMode: 'dark', textColor: '#ffffff', accentColor: '#2997ff', fontSize: 42, position: 'bottom-left', opacity: 92, popup: true, rushOn: false, rushLv: 1 };
 let toastTimer = null;
 
@@ -77,6 +78,16 @@ function showPopup(deltaMs) {
 const link = createTimerLink({
   streamUrl: '/api/stream?role=obs',
   stateUrl: '/api/state',
+  onHello: (info) => {
+    const ver = info && typeof info.appVersion === 'string' ? info.appVersion : '';
+    if (!ver) return;
+    if (knownAppVersion && knownAppVersion !== ver) {
+      // Stream Timer updated to a new version — auto-reload OBS Browser Source cleanly!
+      window.location.reload();
+      return;
+    }
+    knownAppVersion = ver;
+  },
   onFrame: (next) => {
     if (snap && next.revision > snap.revision) {
       const now = performance.now();

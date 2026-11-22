@@ -719,23 +719,23 @@ fn build_tray(app: &AppHandle, engine: Arc<SharedEngine>) -> tauri::Result<()> {
 // ------------------------------------------------ Main Entrypoint -----------
 
 fn main() {
-    // When relaunching right after a self-update, wait cleanly for the previous process to exit
-    // and release WebView2 user-data-dir + port 47120 + old binary handle.
-    if std::env::var_os("STREAM_TIMER_RELAUNCH_WAIT").is_some() {
-        std::thread::sleep(Duration::from_millis(850));
-    }
-
-    // Clean up previous self-update backup binary if present (retry briefly on Windows handle release)
+    // When relaunching right after a self-update, wait cleanly until Windows releases the
+    // previous process's image handle (.exe.old) so WebView2 user-data-dir & port 47120 are free.
+    let is_relaunch = std::env::var_os("STREAM_TIMER_RELAUNCH_WAIT").is_some();
     if let Ok(cur_exe) = std::env::current_exe() {
         let old_exe = cur_exe.with_extension("exe.old");
         if old_exe.is_file() {
-            for _ in 0..5 {
+            let max_tries = if is_relaunch { 40 } else { 5 };
+            for _ in 0..max_tries {
                 if std::fs::remove_file(&old_exe).is_ok() {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(200));
+                std::thread::sleep(Duration::from_millis(100));
             }
         }
+    }
+    if is_relaunch {
+        std::thread::sleep(Duration::from_millis(200));
     }
 
     let shared_engine = Arc::new(SharedEngine::new());

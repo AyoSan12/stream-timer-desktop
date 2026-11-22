@@ -10,6 +10,7 @@ export function createTimerLink({
   onOverlay,
   onActivity,
   onProfileChanged,
+  onHello,
 }) {
   let current = null;
   let es = null;
@@ -47,10 +48,13 @@ export function createTimerLink({
     current = null;
   }
 
-  function start() {
+  function connectSse() {
     if (stopped) return;
     if (es) { try { es.close(); } catch { /* ignore */ } }
     es = new EventSource(streamUrl);
+    es.addEventListener('hello', (ev) => {
+      try { if (typeof onHello === 'function') onHello(JSON.parse(ev.data)); } catch { /* ignore */ }
+    });
     es.addEventListener('state', (ev) => {
       try { ingestState(JSON.parse(ev.data)); } catch { /* ignore */ }
     });
@@ -66,11 +70,19 @@ export function createTimerLink({
     });
     es.onopen = () => setFresh(true);
     es.onerror = () => setFresh(false);
+  }
+
+  function start() {
+    if (stopped) return;
+    connectSse();
 
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => {
-      if (!fresh) refresh();
-    }, 4000);
+      if (!fresh) {
+        refresh();
+        if (!es || es.readyState === EventSource.CLOSED) connectSse();
+      }
+    }, 3000);
     refresh();
   }
 

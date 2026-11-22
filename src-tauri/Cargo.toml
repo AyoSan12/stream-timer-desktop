@@ -1,6 +1,6 @@
 [package]
 name = "stream-timer-desktop"
-version = "1.0.2"
+version = "1.0.3"
 description = "Stream Timer — Native Windows Subathon Countdown & Creator Finance Studio"
 authors = ["Stream Timer"]
 edition = "2021"
