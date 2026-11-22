@@ -384,6 +384,10 @@ const server = http.createServer(async (req, res) => {
       const saved = store.updateAppSettings(body);
       return sendJson(res, 200, { ok: true, ...saved });
     }
+    if (req.method === 'POST' && p === '/api/app/flush') {
+      store.checkpointAll();
+      return sendJson(res, 200, { ok: true });
+    }
     if (req.method === 'GET' && p === '/api/currency-presets') {
       const cur = (url.searchParams.get('currency') || 'USD').toUpperCase();
       const fx = store.getFxState();
@@ -542,6 +546,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: st.status !== 'error', updates: st });
     }
     if (req.method === 'POST' && p === '/api/updates/download') {
+      store.checkpointAll();
       const resDl = await updateManager.downloadAndStage();
       return sendJson(res, resDl.ok ? 200 : 400, resDl);
     }

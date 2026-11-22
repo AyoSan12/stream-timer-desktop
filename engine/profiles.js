@@ -268,9 +268,18 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     return db;
   }
 
+  function checkpointDb(db) {
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE);'); } catch { /* ignore */ }
+  }
+
+  function checkpointAll() {
+    for (const db of openDbs.values()) checkpointDb(db);
+  }
+
   function closeProfileDb(profileId) {
     const db = openDbs.get(profileId);
     if (db) {
+      checkpointDb(db);
       try { db.close(); } catch { /* ignore */ }
       openDbs.delete(profileId);
     }
@@ -498,6 +507,7 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     const prof = getProfileById(profileId);
     if (!prof) return null;
     const db = openProfileDb(profileId);
+    checkpointDb(db);
     return {
       format: 'stream-timer-backup-v1',
       exportedAtIso: new Date().toISOString(),
@@ -589,6 +599,7 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     getActiveProfile,
     openProfileDb,
     closeProfileDb,
+    checkpointAll,
     closeAll,
     createProfile,
     updateProfile,

@@ -56,7 +56,11 @@ let finExportScopeOverride = null;
 let finExportFromLedger = false;
 let finInspectEventId = '';
 let activeView = 'home';
+let activeTimerTab = 'controls';
 let obsRevealed = false;
+let overlayDirty = false;
+let overlaySaveTimer = null;
+let rulesSaveTimer = null;
 let toastTimer = null;
 let helloTimer = null;
 let link = null;
@@ -208,7 +212,11 @@ function initDesktopTitlebar() {
     $(maxId).addEventListener('click', () => invoke('win_toggle_maximize'));
     $(closeId).addEventListener('click', () => {
       const onboarding = !$('onboardingRoot').hidden;
-      invoke('win_close', { onboarding });
+      if (overlayDirty || overlaySaveTimer || rulesSaveTimer) {
+        flushAllPendingSaves().catch(() => {}).finally(() => invoke('win_close', { onboarding }));
+      } else {
+        invoke('win_close', { onboarding });
+      }
     });
   };
   wireControls('tbTrayBtn', 'tbMinBtn', 'tbMaxBtn', 'tbCloseBtn');
@@ -247,7 +255,21 @@ function updateNavThumb(instant = false) {
 
 window.addEventListener('resize', () => updateNavThumb(true));
 
+function switchTimerTab(tabId = 'controls') {
+  activeTimerTab = tabId;
+  document.querySelectorAll('[data-timer-tab]').forEach((x) => {
+    x.classList.toggle('active', x.dataset.timerTab === tabId);
+  });
+  $('timerPanelControls').hidden = tabId !== 'controls';
+  $('timerPanelTiers').hidden = tabId !== 'tiers';
+  $('timerPanelTriggers').hidden = tabId !== 'triggers';
+}
+
 function switchView(viewId) {
+  if (viewId === 'rules') {
+    viewId = 'timer';
+    switchTimerTab('tiers');
+  }
   activeView = viewId;
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${viewId}`));
   document.querySelectorAll('.nav-btn[data-view]').forEach((b) => {
@@ -259,6 +281,7 @@ function switchView(viewId) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 
   if (viewId === 'home') loadHome();
+  else if (viewId === 'timer') { loadRules(); loadOverlay(); }
   else if (viewId === 'donations') loadDonations();
   else if (viewId === 'finance') loadFinance();
   else if (viewId === 'integrations') loadIntegrations();
@@ -690,7 +713,11 @@ async function hydrateActiveWorkspace() {
         $('connPill').dataset.state = ok ? 'live' : 'reconnecting';
         $('connLabel').textContent = ok ? t('status.live') : t('status.reconnecting');
       },
-      onOverlay: (cfg) => { overlayCfg = { ...overlayCfg, ...cfg }; syncOverlayControls(); },
+      onOverlay: (cfg) => {
+        overlayCfg = { ...overlayCfg, ...cfg };
+        if (!overlayDirty) syncOverlayControls();
+        else applyObsPreview();
+      },
       onActivity: () => {
         if (activeView === 'home') loadHome();
         if (activeView === 'donations') loadDonations();
@@ -1217,6 +1244,14 @@ function renderRulesUi() {
   $('trTwPrime').checked = tr.twitchPrime !== false;
   $('trTwGift').checked = tr.twitchGiftSub !== false;
   $('trTwBits').checked = tr.twitchBits !== false;
+
+  const summaryEl = $('timerRulesSummary');
+  if (summaryEl) {
+    const trigKeys = ['cashTips', 'ytSuperchat', 'ytMember', 'ytGiftMember', 'ytJewels', 'twitchSub', 'twitchPrime', 'twitchGiftSub', 'twitchBits'];
+    const onCount = trigKeys.filter((k) => tr[k] !== false).length;
+    const tCount = Array.isArray(draftRules.tiers) ? draftRules.tiers.length : 0;
+    summaryEl.textContent = `${tCount} ${tCount === 1 ? 'tier' : 'tiers'} · ${onCount}/${trigKeys.length} triggers`;
+  }
 }
 
 function renderCatalogsUi() {
@@ -1253,7 +1288,9 @@ function renderCatalogsUi() {
   }
 }
 
-async function saveRulesToServer(toastMsg = 'Saved rules') {
+async function saveRulesToServer(toastMsg = 'Saved rules', silent = false) {
+  if (!draftRules) return;
+  if (rulesSaveTimer) { clearTimeout(rulesSaveTimer); rulesSaveTimer = null; }
   draftRules.mode = $('rulesMode').value;
   draftRules.eventRules.timerTriggers = {
     cashTips: $('trCashTips').checked,
@@ -1279,8 +1316,16 @@ async function saveRulesToServer(toastMsg = 'Saved rules') {
     draftRules = structuredClone(r.data);
     renderRulesUi();
     renderCatalogsUi();
-    showToast(toastMsg);
+    if (!silent && toastMsg) showToast(toastMsg);
   }
+}
+
+function scheduleRulesAutoSave(toastMsg = '') {
+  if (rulesSaveTimer) clearTimeout(rulesSaveTimer);
+  rulesSaveTimer = setTimeout(() => {
+    rulesSaveTimer = null;
+    saveRulesToServer(toastMsg, !toastMsg);
+  }, 450);
 }
 
 // -------------------------------------------------- OBS Overlay -------------
@@ -1293,6 +1338,69 @@ function buildObsUrl(masked = true) {
   if (bg !== 'dark') qs.push(`bg=${bg}`);
   if (!$('ovPopup').checked) qs.push('popup=off');
   return `${window.location.origin}/source?${qs.join('&')}`;
+}
+
+function readOverlayFormBody() {
+  return {
+    timerName: $('ovTimerName').value,
+    totalName: $('ovTotalName').value,
+    bgMode: $('ovBg').value,
+    position: $('ovPos').value,
+    fontSize: Number($('ovSize').value) || 38,
+    opacity: Number($('ovOpacity').value) || 92,
+    showTotal: $('ovShowTotal').checked,
+    popup: $('ovPopup').checked,
+  };
+}
+
+function setOverlaySaveBadge(state) {
+  const el = $('ovSaveStatus');
+  if (!el) return;
+  if (state === 'saving') {
+    el.hidden = false;
+    el.className = 'pill';
+    el.textContent = 'Saving…';
+  } else if (state === 'saved') {
+    el.hidden = false;
+    el.className = 'pill pill-ok';
+    el.textContent = 'Saved ✓';
+  } else {
+    el.hidden = true;
+  }
+}
+
+async function flushOverlaySave({ showNotice = false } = {}) {
+  if (overlaySaveTimer) { clearTimeout(overlaySaveTimer); overlaySaveTimer = null; }
+  const body = readOverlayFormBody();
+  setOverlaySaveBadge('saving');
+  const r = await api('/api/overlay-config', { method: 'PUT', body });
+  if (r.ok) {
+    overlayCfg = { ...overlayCfg, ...r.data };
+    overlayDirty = false;
+    applyObsPreview();
+    setOverlaySaveBadge('saved');
+    if (showNotice) showToast('Saved OBS overlay style');
+  }
+}
+
+function scheduleOverlayAutoSave() {
+  overlayDirty = true;
+  setOverlaySaveBadge('saving');
+  if (overlaySaveTimer) clearTimeout(overlaySaveTimer);
+  overlaySaveTimer = setTimeout(() => {
+    overlaySaveTimer = null;
+    flushOverlaySave({ showNotice: false });
+  }, 450);
+}
+
+async function flushAllPendingSaves() {
+  if (overlayDirty || overlaySaveTimer) {
+    await flushOverlaySave({ showNotice: false });
+  }
+  if (rulesSaveTimer) {
+    await saveRulesToServer('', true);
+  }
+  await api('/api/app/flush', { method: 'POST' }).catch(() => {});
 }
 
 function syncOverlayControls() {
@@ -1308,9 +1416,12 @@ function syncOverlayControls() {
 }
 
 function applyObsPreview() {
+  const lblTxt = ($('ovTimerName').value || overlayCfg.timerName || 'Stream Timer').toUpperCase();
+  const heroLbl = $('timerHeroLabel');
+  if (heroLbl) heroLbl.textContent = overlayCfg.rushOn ? 'BILLING RUSH' : lblTxt;
   $('obsStage').dataset.bg = $('ovBg').value;
   $('obsPrevRush').hidden = !overlayCfg.rushOn;
-  $('obsPrevLbl').textContent = ($('ovTimerName').value || 'Stream Timer').toUpperCase();
+  $('obsPrevLbl').textContent = lblTxt;
   $('obsPrevTot').hidden = !$('ovShowTotal').checked;
   $('obsPreviewCard').style.backgroundColor = `rgba(29,29,31,${((Number($('ovOpacity').value) || 92) / 100).toFixed(2)})`;
   $('obsUrlBox').textContent = buildObsUrl(!obsRevealed);
@@ -1319,7 +1430,11 @@ function applyObsPreview() {
 
 async function loadOverlay() {
   const r = await api('/api/overlay-config');
-  if (r.ok) { overlayCfg = { ...overlayCfg, ...r.data }; syncOverlayControls(); }
+  if (r.ok) {
+    overlayCfg = { ...overlayCfg, ...r.data };
+    if (!overlayDirty) syncOverlayControls();
+    else applyObsPreview();
+  }
 }
 
 // -------------------------------------------------- Integrations & Tunnel ---
@@ -1664,14 +1779,10 @@ function bindAllEvents() {
       $('finPanelFees').hidden = tId !== 'fees';
     });
   });
-  document.querySelectorAll('[data-rules-tab]').forEach((b) => {
-    b.addEventListener('click', () => {
-      const tId = b.dataset.rulesTab;
-      document.querySelectorAll('[data-rules-tab]').forEach((x) => x.classList.toggle('active', x === b));
-      $('rulesPanelTiers').hidden = tId !== 'tiers';
-      $('rulesPanelTriggers').hidden = tId !== 'triggers';
-    });
+  document.querySelectorAll('[data-timer-tab]').forEach((b) => {
+    b.addEventListener('click', () => switchTimerTab(b.dataset.timerTab));
   });
+  $('timerGoRulesBtn')?.addEventListener('click', () => switchTimerTab('tiers'));
   document.querySelectorAll('[data-integ-tab]').forEach((b) => {
     b.addEventListener('click', () => {
       const tId = b.dataset.integTab;
@@ -1920,7 +2031,7 @@ function bindAllEvents() {
     if (r.ok) { await loadFinance(); showToast(`Recalculated ${r.data.updatedCount} active transaction(s)`); }
   });
 
-  // Rules & Catalogs
+  // Rules & Catalogs (instant auto-save so no customization is ever lost)
   $('addTierBtn').addEventListener('click', () => {
     const min = Number($('newTierMin').value);
     const ms = ((Number($('newTierH').value) || 0) * 3600 + (Number($('newTierM').value) || 0) * 60 + (Number($('newTierS').value) || 0)) * 1000;
@@ -1929,6 +2040,7 @@ function bindAllEvents() {
       draftRules.tiers.push({ minimumAmount: min, creditMs: ms });
       draftRules.tiers.sort((a, b) => b.minimumAmount - a.minimumAmount);
       renderRulesUi();
+      saveRulesToServer('Saved donation tier');
     }
   });
   $('rulesTierList').addEventListener('click', (e) => {
@@ -1936,7 +2048,12 @@ function bindAllEvents() {
     if (b && draftRules.tiers.length > 1) {
       draftRules.tiers = draftRules.tiers.filter((x) => x.minimumAmount !== Number(b.dataset.rmTier));
       renderRulesUi();
+      saveRulesToServer('Removed donation tier');
     }
+  });
+  $('rulesMode').addEventListener('change', () => saveRulesToServer('Saved matching mode'));
+  ['trCashTips', 'trYtSc', 'trYtMem', 'trYtGift', 'trYtJewels', 'trTwSub', 'trTwPrime', 'trTwGift', 'trTwBits'].forEach((id) => {
+    $(id)?.addEventListener('change', () => saveRulesToServer('Saved timer trigger'));
   });
   $('saveRulesBtn').addEventListener('click', () => saveRulesToServer('Saved donation tiers'));
   $('saveTriggersBtn').addEventListener('click', () => saveRulesToServer('Saved timer triggers'));
@@ -1950,42 +2067,36 @@ function bindAllEvents() {
     });
     $('ytNewName').value = ''; $('ytNewPrice').value = '';
     renderCatalogsUi();
+    saveRulesToServer('Saved YouTube level');
   });
   $('ytLevelsList').addEventListener('click', (e) => {
     const b = e.target.closest('[data-rm-yt]');
     if (b && draftRules.eventRules.ytLevels.length > 1) {
       draftRules.eventRules.ytLevels = draftRules.eventRules.ytLevels.filter((x) => x.name !== b.dataset.rmYt);
       renderCatalogsUi();
+      saveRulesToServer('Removed YouTube level');
     }
   });
+  $('twTierMatrix').addEventListener('change', () => scheduleRulesAutoSave('Saved Twitch catalog'));
   $('saveYtBtn').addEventListener('click', () => saveRulesToServer('Saved YouTube catalog'));
   $('saveTwBtn').addEventListener('click', () => saveRulesToServer('Saved Twitch catalog'));
 
-  // OBS Overlay
+  // OBS Overlay (instant live preview + debounced auto-save so labels like "Jam hidup" never reset!)
   [$('ovTimerName'), $('ovTotalName'), $('ovBg'), $('ovPos'), $('ovSize'), $('ovOpacity'), $('ovShowTotal'), $('ovPopup')].forEach((c) => {
-    c.addEventListener('input', applyObsPreview);
-    c.addEventListener('change', applyObsPreview);
+    const onEdit = () => { applyObsPreview(); scheduleOverlayAutoSave(); };
+    c.addEventListener('input', onEdit);
+    c.addEventListener('change', onEdit);
   });
   $('obsCopyBtn').addEventListener('click', () => copyText(buildObsUrl(false), 'Copied OBS Browser Source URL'));
   $('obsRevealBtn').addEventListener('click', () => { obsRevealed = !obsRevealed; applyObsPreview(); });
   $('obsRushBtn').addEventListener('click', async () => {
+    if (overlayDirty) await flushOverlaySave({ showNotice: false });
     overlayCfg.rushOn = !overlayCfg.rushOn;
     await api('/api/overlay-config', { method: 'PUT', body: { rushOn: overlayCfg.rushOn } });
     applyObsPreview();
     showToast(overlayCfg.rushOn ? 'Billing Rush active' : 'Billing Rush stopped');
   });
-  $('ovSaveBtn').addEventListener('click', async () => {
-    const r = await api('/api/overlay-config', {
-      method: 'PUT',
-      body: {
-        timerName: $('ovTimerName').value, totalName: $('ovTotalName').value,
-        bgMode: $('ovBg').value, position: $('ovPos').value,
-        fontSize: Number($('ovSize').value) || 38, opacity: Number($('ovOpacity').value) || 92,
-        showTotal: $('ovShowTotal').checked, popup: $('ovPopup').checked,
-      },
-    });
-    if (r.ok) showToast('Saved OBS overlay style');
-  });
+  $('ovSaveBtn').addEventListener('click', () => flushOverlaySave({ showNotice: true }));
 
   // Tunnel & Webhooks & Simulator
   $('tunnelStartBtn').addEventListener('click', async () => {
@@ -2059,7 +2170,7 @@ function bindAllEvents() {
     if (r.ok) { bootData.fx = r.data.fx; renderFxRatesList(); showToast('Saved FX settings'); }
   });
   $('fxSearchIn').addEventListener('input', renderFxRatesList);
-  $('saveDesktopBtn').addEventListener('click', async () => {
+  const saveDesktopPrefs = async (toastMsg = 'Saved desktop preferences') => {
     const nextLang = $('setLangSelect').value;
     if (activeProfile && nextLang !== activeProfile.language) {
       await api(`/api/profiles/${encodeURIComponent(activeProfile.id)}`, { method: 'PATCH', body: { language: nextLang } });
@@ -2074,8 +2185,11 @@ function bindAllEvents() {
       window.__TAURI_INTERNALS__.invoke('update_hotkeys', { hotkeys }).catch(() => {});
     }
     renderProfileHeaderAndMenu();
-    showToast('Saved desktop preferences');
-  });
+    if (toastMsg) showToast(toastMsg);
+  };
+  $('setLangSelect').addEventListener('change', () => saveDesktopPrefs('Language updated'));
+  $('setCloseToTrayChk').addEventListener('change', () => saveDesktopPrefs('Saved tray preference'));
+  $('saveDesktopBtn').addEventListener('click', () => saveDesktopPrefs('Saved desktop preferences'));
 
   // Built-in Software Update actions (clean Apple toggles — zero GitHub URL exposed)
   $('popUpdateBtn').addEventListener('click', () => {
@@ -2107,6 +2221,7 @@ function bindAllEvents() {
     }
   });
   $('updInstallBtn').addEventListener('click', async () => {
+    await flushAllPendingSaves().catch(() => {});
     const stRes = await api('/api/updates/status');
     if (stRes.ok && stRes.data?.isTimerRunning) {
       showToast('Timer is currently running — pause the timer first before installing the update.');

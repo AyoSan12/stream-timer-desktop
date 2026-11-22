@@ -252,9 +252,9 @@ cases.push({
     await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
     await page.waitForTimeout(250);
 
-    // 1. Verify ZERO horizontal nav bar shift across ALL 8 tabs (Home -> Timer -> Donations -> Finance -> Rules -> OBS -> Integrations -> Settings)
+    // 1. Verify ZERO horizontal nav bar shift across ALL 7 unified tabs (Home -> Timer -> Donations -> Finance -> OBS -> Integrations -> Settings)
     const navLefts = [];
-    for (const tabId of ['nav-home', 'nav-timer', 'nav-donations', 'nav-finance', 'nav-rules', 'nav-overlay', 'nav-integrations', 'nav-settings']) {
+    for (const tabId of ['nav-home', 'nav-timer', 'nav-donations', 'nav-finance', 'nav-overlay', 'nav-integrations', 'nav-settings']) {
       await page.locator(`#${tabId}`).click();
       await page.waitForTimeout(80);
       const x = await page.evaluate(() => Math.round(document.getElementById('mainNav').getBoundingClientRect().left));
@@ -262,9 +262,44 @@ cases.push({
     }
     const minNavX = Math.min(...navLefts);
     const maxNavX = Math.max(...navLefts);
-    eq(minNavX, maxNavX, `Main nav bar never shifts horizontally across all 8 tabs (lefts: ${navLefts.join(',')})`);
+    eq(minNavX, maxNavX, `Main nav bar never shifts horizontally across all 7 tabs (lefts: ${navLefts.join(',')})`);
 
-    // Capture Settings -> Desktop (shows Unified Single Toolbar + Software Update card!)
+    // 1b. Verify unified Timer view (Controls | Donation Tiers | Triggers) + auto-save persistence of custom Timer Label ("Jam hidup")
+    await page.locator('#nav-timer').click();
+    await page.waitForTimeout(120);
+    await page.locator('[data-timer-tab="tiers"]').click();
+    await page.waitForTimeout(100);
+    assert(await page.locator('#timerPanelTiers').isVisible(), 'Timer -> Donation Tiers sub-tab opens cleanly');
+    await page.locator('[data-timer-tab="triggers"]').click();
+    await page.waitForTimeout(100);
+    assert(await page.locator('#timerPanelTriggers').isVisible(), 'Timer -> Triggers sub-tab opens cleanly');
+    await page.locator('[data-timer-tab="controls"]').click();
+    await page.waitForTimeout(100);
+
+    // Type custom Timer Label WITHOUT clicking Save Overlay Style, verify debounced auto-save persists across reload & OBS /source
+    await page.locator('#nav-overlay').click();
+    await page.waitForTimeout(120);
+    await page.locator('#ovTimerName').fill('Jam hidup');
+    await page.waitForTimeout(750);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#appRoot:not([hidden])', { timeout: 6000 });
+    await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
+    await page.waitForTimeout(250);
+    const persistedLbl = await page.locator('#ovTimerName').inputValue();
+    eq(persistedLbl, 'Jam hidup', 'Custom Timer Label auto-saves and survives reload without clicking Save');
+    const heroLbl = await page.locator('#timerHeroLabel').textContent();
+    eq(heroLbl, 'JAM HIDUP', 'Custom Timer Label also syncs to Timer hero label');
+    const obsCheck = await ctx.newPage();
+    await obsCheck.goto(`${eng.base}/source`, { waitUntil: 'domcontentloaded' });
+    await obsCheck.waitForTimeout(350);
+    eq(await obsCheck.locator('#timerLabel').textContent(), 'JAM HIDUP', 'OBS Browser Source renders custom Timer Label immediately');
+    await obsCheck.close();
+
+    // Capture Timer unified view & Settings -> Desktop
+    await page.locator('#nav-timer').click();
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: path.join(evDir, '15-timer-unified-dark.png') });
+    await page.locator('#nav-settings').click();
     await page.locator('[data-set-tab="desktop"]').click();
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(evDir, '14-settings-software-update-dark.png') });

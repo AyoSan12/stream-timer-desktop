@@ -75,6 +75,19 @@ function showPopup(deltaMs) {
   toastTimer = setTimeout(() => { toastTimer = null; creditToast.hidden = true; }, 2600);
 }
 
+async function fetchOverlayConfig() {
+  try {
+    const res = await fetch('/api/overlay-config', { headers: { accept: 'application/json' }, cache: 'no-store' });
+    if (res.ok) {
+      const nextCfg = await res.json();
+      if (nextCfg && typeof nextCfg === 'object') {
+        cfg = { ...cfg, ...nextCfg };
+        applyStyle();
+      }
+    }
+  } catch { /* ignore transient offline */ }
+}
+
 const link = createTimerLink({
   streamUrl: '/api/stream?role=obs',
   stateUrl: '/api/state',
@@ -88,6 +101,9 @@ const link = createTimerLink({
     }
     knownAppVersion = ver;
   },
+  onFreshness: (isFresh) => {
+    if (isFresh) fetchOverlayConfig();
+  },
   onFrame: (next) => {
     if (snap && next.revision > snap.revision) {
       const now = performance.now();
@@ -98,6 +114,7 @@ const link = createTimerLink({
   },
   onOverlay: (nextCfg) => { cfg = { ...cfg, ...nextCfg }; applyStyle(); },
 });
+fetchOverlayConfig();
 link.start();
 
 function tick() {

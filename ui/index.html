@@ -201,7 +201,6 @@
         <button type="button" id="nav-timer" class="nav-btn" role="tab" aria-selected="false" data-view="timer" data-i18n="nav.timer">Timer</button>
         <button type="button" id="nav-donations" class="nav-btn" role="tab" aria-selected="false" data-view="donations" data-i18n="nav.donations">Donations</button>
         <button type="button" id="nav-finance" class="nav-btn" role="tab" aria-selected="false" data-view="finance" data-i18n="nav.finance">Finance</button>
-        <button type="button" id="nav-rules" class="nav-btn" role="tab" aria-selected="false" data-view="rules" data-i18n="nav.rules">Rules</button>
         <button type="button" id="nav-overlay" class="nav-btn" role="tab" aria-selected="false" data-view="overlay" data-i18n="nav.overlay">OBS</button>
         <button type="button" id="nav-integrations" class="nav-btn" role="tab" aria-selected="false" data-view="integrations" data-i18n="nav.integrations">Integrations</button>
         <button type="button" id="nav-settings" class="nav-btn" role="tab" aria-selected="false" data-view="settings" data-i18n="nav.settings">Settings</button>
@@ -378,62 +377,138 @@
       </section>
     </section>
 
-    <!-- ═══════════════ VIEW 2: TIMER ═══════════════ -->
+    <!-- ═══════════════ VIEW 2: TIMER (UNIFIED CONTROLS + TIERS + TRIGGERS) ═══════════════ -->
     <section class="view" id="view-timer" role="tabpanel" aria-labelledby="nav-timer">
-      <section class="timer-hero" aria-label="Live countdown">
+      <div class="view-head">
         <div>
-          <span id="timerStatePill" class="pill pill-accent">PAUSED</span>
+          <h1 class="view-title" data-i18n="nav.timer">Timer</h1>
+          <p class="view-sub" data-i18n="timer.sub">Live countdown, precision adjustments, donation tiers, and platform triggers.</p>
         </div>
-        <div id="countdown" class="countdown" role="timer" aria-label="Time remaining">00:00:00</div>
-        <div class="hero-controls">
-          <button id="toggleBtn" type="button" class="btn btn-hero-primary" data-i18n="timer.resume">Resume</button>
-          <button type="button" class="btn btn-hero-dark" data-add="60">+1m</button>
-          <button type="button" class="btn btn-hero-dark" data-add="300">+5m</button>
-          <button type="button" class="btn btn-hero-dark" data-sub="60">-1m</button>
-          <button type="button" class="btn btn-hero-dark" data-sub="300">-5m</button>
-          <button id="resetTimerBtn" type="button" class="btn btn-hero-danger" data-i18n="timer.reset">Reset</button>
+        <div class="segmented" role="tablist" aria-label="Timer sections">
+          <button type="button" class="seg-btn active" data-timer-tab="controls" data-i18n="timer.tabControls">Controls</button>
+          <button type="button" class="seg-btn" data-timer-tab="tiers" data-i18n="rules.tabTiers">Donation Tiers</button>
+          <button type="button" class="seg-btn" data-timer-tab="triggers" data-i18n="rules.tabTriggers">Triggers</button>
         </div>
-      </section>
+      </div>
 
-      <div class="grid-2">
-        <section class="card" aria-labelledby="precTitle">
-          <div class="card-head">
-            <h2 id="precTitle" class="card-title" data-i18n="timer.precision">Precision Control</h2>
+      <div id="timerPanelControls">
+        <section class="timer-hero" aria-label="Live countdown">
+          <div style="display:inline-flex;align-items:center;gap:8px;justify-content:center;">
+            <span id="timerHeroLabel" style="font-size:11.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--accent);opacity:0.92;">STREAM TIMER</span>
+            <span id="timerStatePill" class="pill pill-accent">PAUSED</span>
           </div>
-          <div class="row-2" style="align-items:end;margin-bottom:12px;">
-            <label class="field"><span data-i18n="timer.setMinutes">Set minutes</span>
-              <input id="setMinutesIn" type="number" min="0" step="1" value="10">
-            </label>
-            <button id="setMinutesBtn" type="button" class="btn btn-dark btn-pill">Set</button>
-          </div>
-          <hr class="hairline">
-          <p class="section-kicker" data-i18n="timer.manualAdj">Manual Adjustment</p>
-          <div class="row-3" style="margin-bottom:10px;">
-            <label class="field">Hours<input id="adjH" type="number" min="0" value="0"></label>
-            <label class="field">Minutes<input id="adjM" type="number" min="0" value="5"></label>
-            <label class="field">Seconds<input id="adjS" type="number" min="0" value="0"></label>
-          </div>
-          <div class="btn-row">
-            <button id="adjAddBtn" type="button" class="btn btn-primary btn-pill btn-sm">Add</button>
-            <button id="adjSubBtn" type="button" class="btn btn-pill btn-sm">Subtract</button>
-            <button id="adjSetBtn" type="button" class="btn btn-pill btn-sm">Set Exact</button>
+          <div id="countdown" class="countdown" role="timer" aria-label="Time remaining">00:00:00</div>
+          <div class="hero-controls">
+            <button id="toggleBtn" type="button" class="btn btn-hero-primary" data-i18n="timer.resume">Resume</button>
+            <button type="button" class="btn btn-hero-dark" data-add="60">+1m</button>
+            <button type="button" class="btn btn-hero-dark" data-add="300">+5m</button>
+            <button type="button" class="btn btn-hero-dark" data-sub="60">-1m</button>
+            <button type="button" class="btn btn-hero-dark" data-sub="300">-5m</button>
+            <button id="resetTimerBtn" type="button" class="btn btn-hero-danger" data-i18n="timer.reset">Reset</button>
           </div>
         </section>
 
-        <section class="card" aria-labelledby="sessOvTitle">
-          <div class="card-head">
-            <h2 id="sessOvTitle" class="card-title" data-i18n="timer.overview">Session Overview</h2>
-          </div>
-          <div class="stack-sm">
-            <div class="fin-deduct-row"><span data-i18n="timer.gross">Gross Donations</span><strong id="statGross" style="font-family:var(--font-mono);">$0.00</strong></div>
-            <div class="fin-deduct-row">
-              <span data-i18n="timer.added">Total Time Added</span>
-              <div class="btn-row">
-                <strong id="statAdded" style="font-family:var(--font-mono);">0h 0m</strong>
-                <button id="resetAddedBtn" type="button" class="btn btn-link" data-i18n="timer.resetAdded">Reset</button>
+        <div class="grid-2">
+          <section class="card" aria-labelledby="precTitle">
+            <div class="card-head">
+              <h2 id="precTitle" class="card-title" data-i18n="timer.precision">Precision Control</h2>
+            </div>
+            <div class="row-2" style="align-items:end;margin-bottom:12px;">
+              <label class="field"><span data-i18n="timer.setMinutes">Set minutes</span>
+                <input id="setMinutesIn" type="number" min="0" step="1" value="10">
+              </label>
+              <button id="setMinutesBtn" type="button" class="btn btn-dark btn-pill">Set</button>
+            </div>
+            <hr class="hairline">
+            <p class="section-kicker" data-i18n="timer.manualAdj">Manual Adjustment</p>
+            <div class="row-3" style="margin-bottom:10px;">
+              <label class="field">Hours<input id="adjH" type="number" min="0" value="0"></label>
+              <label class="field">Minutes<input id="adjM" type="number" min="0" value="5"></label>
+              <label class="field">Seconds<input id="adjS" type="number" min="0" value="0"></label>
+            </div>
+            <div class="btn-row">
+              <button id="adjAddBtn" type="button" class="btn btn-primary btn-pill btn-sm">Add</button>
+              <button id="adjSubBtn" type="button" class="btn btn-pill btn-sm">Subtract</button>
+              <button id="adjSetBtn" type="button" class="btn btn-pill btn-sm">Set Exact</button>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="sessOvTitle">
+            <div class="card-head">
+              <h2 id="sessOvTitle" class="card-title" data-i18n="timer.overview">Session Overview</h2>
+            </div>
+            <div class="stack-sm">
+              <div class="fin-deduct-row"><span data-i18n="timer.gross">Gross Donations</span><strong id="statGross" style="font-family:var(--font-mono);">$0.00</strong></div>
+              <div class="fin-deduct-row">
+                <span data-i18n="timer.added">Total Time Added</span>
+                <div class="btn-row">
+                  <strong id="statAdded" style="font-family:var(--font-mono);">0h 0m</strong>
+                  <button id="resetAddedBtn" type="button" class="btn btn-link" data-i18n="timer.resetAdded">Reset</button>
+                </div>
+              </div>
+              <div class="fin-deduct-row"><span data-i18n="timer.count">Donation Count</span><strong id="statCount" style="font-family:var(--font-mono);">0</strong></div>
+              <hr class="hairline">
+              <div class="fin-deduct-row">
+                <span data-i18n="rules.title">Credit Rules</span>
+                <div class="btn-row">
+                  <span id="timerRulesSummary" class="helper-text" style="margin:0;">3 tiers · 9/9 triggers</span>
+                  <button id="timerGoRulesBtn" type="button" class="btn btn-link" data-i18n="timer.configureRules">Configure →</button>
+                </div>
               </div>
             </div>
-            <div class="fin-deduct-row"><span data-i18n="timer.count">Donation Count</span><strong id="statCount" style="font-family:var(--font-mono);">0</strong></div>
+          </section>
+        </div>
+      </div>
+
+      <div id="timerPanelTiers" class="grid-2" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Active Tiers</h2><span id="rulesCurBadge" class="pill">USD</span></div>
+          <label class="field" style="margin-bottom:10px;">Matching Mode
+            <select id="rulesMode"><option value="threshold">Threshold (highest matched tier)</option><option value="greedy">Greedy (stack multiples)</option></select>
+          </label>
+          <div id="rulesTierList" class="stack-sm" style="margin-bottom:12px;"></div>
+          <div class="btn-row">
+            <button id="saveRulesBtn" type="button" class="btn btn-primary btn-pill" data-i18n="rules.save">Save Rules</button>
+            <span class="helper-text" style="margin:0;">Changes auto-save automatically</span>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Add / Update Tier</h2></div>
+          <div class="stack-sm">
+            <label class="field"><span id="newTierMinLbl">Minimum Gift</span><input id="newTierMin" type="number" min="0.01" step="any" value="25"></label>
+            <div class="row-3">
+              <label class="field">Hours<input id="newTierH" type="number" min="0" value="1"></label>
+              <label class="field">Minutes<input id="newTierM" type="number" min="0" value="0"></label>
+              <label class="field">Seconds<input id="newTierS" type="number" min="0" value="0"></label>
+            </div>
+            <button id="addTierBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Tier</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="timerPanelTriggers" hidden>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Timer Triggers</h2>
+              <p class="helper-text" style="margin:2px 0 0;">Choose which platform events extend the countdown. Changes save automatically.</p>
+            </div>
+            <button id="saveTriggersBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="rules.saveTriggers">Save Timer Triggers</button>
+          </div>
+          <div class="row-2">
+            <div class="stack-sm">
+              <label class="toggle-row"><span>Cash Tips &amp; Regional Gateways</span><input id="trCashTips" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Super Chat &amp; Stickers</span><input id="trYtSc" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Membership (Individual)</span><input id="trYtMem" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Gift Membership</span><input id="trYtGift" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Jewels / Live Gifts</span><input id="trYtJewels" type="checkbox" checked></label>
+            </div>
+            <div class="stack-sm">
+              <label class="toggle-row"><span>Twitch Sub (Individual)</span><input id="trTwSub" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Prime Sub</span><input id="trTwPrime" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Gift Sub</span><input id="trTwGift" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Bits / Cheers</span><input id="trTwBits" type="checkbox" checked></label>
+            </div>
           </div>
         </section>
       </div>
@@ -702,72 +777,17 @@
       </div>
     </section>
 
-    <!-- ═══════════════ VIEW 5: RULES ═══════════════ -->
-    <section class="view" id="view-rules" role="tabpanel" aria-labelledby="nav-rules">
-      <div class="view-head">
-        <div>
-          <h1 class="view-title" data-i18n="rules.title">Rules</h1>
-          <p class="view-sub" data-i18n="rules.sub">Configure donation-to-time tiers and toggle which platform events extend the countdown.</p>
-        </div>
-        <div class="segmented" role="tablist" aria-label="Rules tabs">
-          <button type="button" class="seg-btn active" data-rules-tab="tiers" data-i18n="rules.tabTiers">Donation Tiers</button>
-          <button type="button" class="seg-btn" data-rules-tab="triggers" data-i18n="rules.tabTriggers">Timer Triggers</button>
-        </div>
-      </div>
-
-      <div id="rulesPanelTiers" class="grid-2">
-        <section class="card">
-          <div class="card-head"><h2 class="card-title">Active Tiers</h2><span id="rulesCurBadge" class="pill">USD</span></div>
-          <label class="field" style="margin-bottom:10px;">Matching Mode
-            <select id="rulesMode"><option value="threshold">Threshold (highest matched tier)</option><option value="greedy">Greedy (stack multiples)</option></select>
-          </label>
-          <div id="rulesTierList" class="stack-sm" style="margin-bottom:12px;"></div>
-          <button id="saveRulesBtn" type="button" class="btn btn-primary btn-pill" data-i18n="rules.save">Save Rules</button>
-        </section>
-        <section class="card">
-          <div class="card-head"><h2 class="card-title">Add / Update Tier</h2></div>
-          <div class="stack-sm">
-            <label class="field"><span id="newTierMinLbl">Minimum Gift</span><input id="newTierMin" type="number" min="0.01" step="any" value="25"></label>
-            <div class="row-3">
-              <label class="field">Hours<input id="newTierH" type="number" min="0" value="1"></label>
-              <label class="field">Minutes<input id="newTierM" type="number" min="0" value="0"></label>
-              <label class="field">Seconds<input id="newTierS" type="number" min="0" value="0"></label>
-            </div>
-            <button id="addTierBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Tier</button>
-          </div>
-        </section>
-      </div>
-
-      <div id="rulesPanelTriggers" hidden>
-        <section class="card">
-          <div class="card-head"><h2 class="card-title">Timer Triggers</h2><button id="saveTriggersBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="rules.saveTriggers">Save Timer Triggers</button></div>
-          <div class="row-2">
-            <div class="stack-sm">
-              <label class="toggle-row"><span>Cash Tips &amp; Regional Gateways</span><input id="trCashTips" type="checkbox" checked></label>
-              <label class="toggle-row"><span>YouTube Super Chat &amp; Stickers</span><input id="trYtSc" type="checkbox" checked></label>
-              <label class="toggle-row"><span>YouTube Membership (Individual)</span><input id="trYtMem" type="checkbox" checked></label>
-              <label class="toggle-row"><span>YouTube Gift Membership</span><input id="trYtGift" type="checkbox" checked></label>
-              <label class="toggle-row"><span>YouTube Jewels / Live Gifts</span><input id="trYtJewels" type="checkbox" checked></label>
-            </div>
-            <div class="stack-sm">
-              <label class="toggle-row"><span>Twitch Sub (Individual)</span><input id="trTwSub" type="checkbox" checked></label>
-              <label class="toggle-row"><span>Twitch Prime Sub</span><input id="trTwPrime" type="checkbox" checked></label>
-              <label class="toggle-row"><span>Twitch Gift Sub</span><input id="trTwGift" type="checkbox" checked></label>
-              <label class="toggle-row"><span>Twitch Bits / Cheers</span><input id="trTwBits" type="checkbox" checked></label>
-            </div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <!-- ═══════════════ VIEW 6: OBS OVERLAY ═══════════════ -->
+    <!-- ═══════════════ VIEW 5: OBS OVERLAY ═══════════════ -->
     <section class="view" id="view-overlay" role="tabpanel" aria-labelledby="nav-overlay">
       <div class="view-head">
         <div>
           <h1 class="view-title" data-i18n="obs.title">OBS Overlay</h1>
           <p class="view-sub" data-i18n="obs.sub">Customize your live broadcast overlay and copy the private Browser Source URL.</p>
         </div>
-        <button id="ovSaveBtn" type="button" class="btn btn-primary btn-pill" data-i18n="obs.save">Save Overlay Style</button>
+        <div class="btn-row">
+          <span id="ovSaveStatus" class="pill pill-ok" hidden>Saved ✓</span>
+          <button id="ovSaveBtn" type="button" class="btn btn-primary btn-pill" data-i18n="obs.save">Save Overlay Style</button>
+        </div>
       </div>
       <div class="grid-2">
         <section class="card">

@@ -198,6 +198,10 @@ fn win_close(app: AppHandle, window: Window, state: State<'_, AppState>, onboard
     if hide_mode && state.engine.port.load(Ordering::SeqCst) > 0 {
         let _ = window.hide();
     } else {
+        let port = state.engine.port.load(Ordering::SeqCst);
+        if port > 0 {
+            post_local_json(port, "/api/app/flush", "{}");
+        }
         state.engine.kill_child();
         app.exit(0);
     }
@@ -228,6 +232,10 @@ fn retry_engine_boot(app: AppHandle, state: State<'_, AppState>) {
 
 #[tauri::command]
 fn app_quit(app: AppHandle, state: State<'_, AppState>) {
+    let port = state.engine.port.load(Ordering::SeqCst);
+    if port > 0 {
+        post_local_json(port, "/api/app/flush", "{}");
+    }
     state.engine.kill_child();
     app.exit(0);
 }
@@ -277,6 +285,10 @@ fn apply_staged_update(app: AppHandle, state: State<'_, AppState>, staged_path: 
     }
 
     let _ = std::fs::remove_file(&canon_staged);
+    let port = state.engine.port.load(Ordering::SeqCst);
+    if port > 0 {
+        post_local_json(port, "/api/app/flush", "{}");
+    }
     state.engine.kill_child();
 
     // Signal the new instance to wait briefly so this process fully releases WebView2 & port 47120
@@ -505,14 +517,12 @@ fn ensure_embedded_runtime() -> Result<(PathBuf, PathBuf), String> {
     }
 
     let pkg_path = runtime_root.join("package.json");
-    if !pkg_path.is_file() {
-        let pkg_json = format!(
-            r#"{{"name":"stream-timer-runtime","version":"{}","private":true,"type":"module"}}"#,
-            env!("CARGO_PKG_VERSION")
-        );
-        std::fs::write(&pkg_path, pkg_json)
-            .map_err(|e| format!("Failed writing runtime package.json: {}", e))?;
-    }
+    let pkg_json = format!(
+        r#"{{"name":"stream-timer-runtime","version":"{}","private":true,"type":"module"}}"#,
+        env!("CARGO_PKG_VERSION")
+    );
+    std::fs::write(&pkg_path, pkg_json)
+        .map_err(|e| format!("Failed writing runtime package.json: {}", e))?;
 
     std::fs::write(&marker, embedded::RUNTIME_HASH)
         .map_err(|e| format!("Failed finalizing runtime marker: {}", e))?;

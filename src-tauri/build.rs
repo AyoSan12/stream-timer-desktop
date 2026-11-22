@@ -40,6 +40,9 @@ fn main() {
     files.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut hash: u64 = 0xcbf29ce484222325;
+    if let Ok(pkg_ver) = env::var("CARGO_PKG_VERSION") {
+        hash = fnv1a_update(hash, pkg_ver.as_bytes());
+    }
     let mut code = String::new();
     code.push_str("pub static EMBEDDED_FILES: &[(&str, &[u8])] = &[\n");
 
