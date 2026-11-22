@@ -12,6 +12,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const OFFICIAL_UPDATE_FEED_URL =
   process.env.STREAM_TIMER_UPDATE_URL ||
   'https://github.com/AyoSan12/stream-timer-desktop/releases/latest/download/latest.json';
+const OFFICIAL_GH_API_LATEST =
+  'https://api.github.com/repos/AyoSan12/stream-timer-desktop/releases/latest';
 
 function readAppVersion() {
   try {
@@ -50,6 +52,7 @@ export function createUpdateManager({ dataDir, getUpdateConfig, exportAllProfile
   };
 
   async function checkNow(overrideFeedUrl = '') {
+    const useOfficial = !overrideFeedUrl && !process.env.STREAM_TIMER_UPDATE_URL;
     const feedUrl = (overrideFeedUrl || OFFICIAL_UPDATE_FEED_URL).trim();
     state.lastCheckedAtMs = Date.now();
     state.lastError = null;
@@ -61,13 +64,38 @@ export function createUpdateManager({ dataDir, getUpdateConfig, exportAllProfile
         const filePath = fileURLToPath(feedUrl);
         manifest = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       } else {
-        const parsedUrl = new URL(feedUrl);
+        // Resolve direct versioned latest.json via GitHub Releases API first (bypasses ~60s CDN redirect cache!)
+        let targetUrl = feedUrl;
+        if (useOfficial) {
+          try {
+            const apiRes = await fetch(OFFICIAL_GH_API_LATEST, {
+              cache: 'no-store',
+              headers: {
+                accept: 'application/vnd.github+json',
+                'cache-control': 'no-cache',
+                'user-agent': `StreamTimer/${APP_VERSION}`,
+              },
+              signal: AbortSignal.timeout(8_000),
+            });
+            if (apiRes.ok) {
+              const rel = await apiRes.json();
+              const asset = Array.isArray(rel?.assets) ? rel.assets.find((a) => a.name === 'latest.json') : null;
+              if (asset && typeof asset.browser_download_url === 'string') {
+                targetUrl = asset.browser_download_url;
+              }
+            }
+          } catch { /* fallback cleanly to direct latest.json redirect */ }
+        }
+
+        const parsedUrl = new URL(targetUrl);
         if (parsedUrl.protocol !== 'https:' && parsedUrl.hostname !== '127.0.0.1' && parsedUrl.hostname !== 'localhost') {
           throw new Error('Update feed must use HTTPS');
         }
-        const res = await fetch(feedUrl, {
+        parsedUrl.searchParams.set('_ts', String(Date.now()));
+        const res = await fetch(parsedUrl.toString(), {
           redirect: 'follow',
-          headers: { accept: 'application/json', 'user-agent': `StreamTimer/${APP_VERSION}` },
+          cache: 'no-store',
+          headers: { accept: 'application/json', 'cache-control': 'no-cache', 'user-agent': `StreamTimer/${APP_VERSION}` },
           signal: AbortSignal.timeout(12_000),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status} checking for updates`);

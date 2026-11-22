@@ -517,9 +517,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/updates/status') {
       const ctxNow = activeCtx();
       const snapNow = ctxNow ? readSnapshot(ctxNow.db) : null;
+      const isTimerRunning = Boolean(snapNow && snapNow.state === 'running');
+      const obsConnectedCount = clientStats().obs;
       return sendJson(res, 200, {
         ...updateManager.getStatus(),
-        isStreamingBusy: Boolean((snapNow && snapNow.state === 'running') || clientStats().obs > 0),
+        isTimerRunning,
+        obsConnectedCount,
+        // Manual install is safe whenever the countdown timer is paused (OBS auto-reconnects via SSE in 1.5s)
+        isStreamingBusy: isTimerRunning,
       });
     }
     if (req.method === 'PUT' && p === '/api/updates/config') {

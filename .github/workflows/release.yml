@@ -13,27 +13,55 @@ jobs:
   release-windows:
     runs-on: windows-latest
     steps:
+      - name: Check if release assets are already published
+        id: check_existing
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          $tag = "${{ github.ref_name }}"
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+            $names = @($rel.assets | ForEach-Object { $_.name })
+            if (($names -contains "Stream-Timer.exe") -and ($names -contains "latest.json")) {
+              Write-Host "Release $tag already has Stream-Timer.exe and latest.json published — skipping CI overwrite."
+              "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              exit 0
+            }
+          } catch {}
+          "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Checkout repository
+        if: steps.check_existing.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Setup Node.js 24
+        if: steps.check_existing.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
       - name: Setup Rust stable
+        if: steps.check_existing.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run Engine & Model Tests
+        if: steps.check_existing.outputs.skip != 'true'
         run: |
           node tests/model.test.mjs
           node tests/engine.test.mjs
 
       - name: Build Standalone Native Windows Binary (Tauri v2)
+        if: steps.check_existing.outputs.skip != 'true'
         working-directory: src-tauri
         run: cargo build --release
 
       - name: Stage Release Binary & Generate SHA-256 latest.json Manifest
+        if: steps.check_existing.outputs.skip != 'true'
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
@@ -48,6 +76,7 @@ jobs:
           node scripts/build-release-manifest.mjs --version "$ver" --url "$dlUrl" --notes "Stream Timer $tag — Automated Windows Release"
 
       - name: Publish GitHub Release
+        if: steps.check_existing.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

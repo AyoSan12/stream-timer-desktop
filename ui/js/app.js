@@ -2108,26 +2108,36 @@ function bindAllEvents() {
   });
   $('updInstallBtn').addEventListener('click', async () => {
     const stRes = await api('/api/updates/status');
-    if (stRes.ok && stRes.data?.isStreamingBusy) {
-      showToast('Timer is running or OBS is attached — pause first before installing update.');
+    if (stRes.ok && stRes.data?.isTimerRunning) {
+      showToast('Timer is currently running — pause the timer first before installing the update.');
       return;
     }
     $('updInstallBtn').disabled = true;
+    $('updCheckBtn').disabled = true;
+    const prevLbl = $('updInstallBtn').textContent;
+    $('updInstallBtn').textContent = 'Downloading & Verifying…';
     showToast('Backing up profiles & verifying SHA-256 update…');
     const dl = await api('/api/updates/download', { method: 'POST' });
-    $('updInstallBtn').disabled = false;
     if (!dl.ok) {
+      $('updInstallBtn').disabled = false;
+      $('updCheckBtn').disabled = false;
+      $('updInstallBtn').textContent = prevLbl;
       if (dl.data?.status) renderUpdateStatus(dl.data.status);
       showToast(`Update failed: ${dl.data?.error || dl.status}`);
       return;
     }
     renderUpdateStatus(dl.data.status);
     if (window.__TAURI_INTERNALS__?.invoke && dl.data.status?.stagedPath) {
+      $('updInstallBtn').textContent = 'Installing & Relaunching…';
       showToast('Applying update & relaunching…');
       window.__TAURI_INTERNALS__.invoke('apply_staged_update', { stagedPath: dl.data.status.stagedPath }).catch((err) => {
+        $('updInstallBtn').disabled = false;
+        $('updCheckBtn').disabled = false;
         showToast(`Install error: ${String(err)}`);
       });
     } else {
+      $('updInstallBtn').disabled = false;
+      $('updCheckBtn').disabled = false;
       showToast('Update verified & staged (run inside Stream Timer.exe to auto-relaunch)');
     }
   });

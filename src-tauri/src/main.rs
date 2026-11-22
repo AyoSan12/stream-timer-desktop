@@ -279,7 +279,10 @@ fn apply_staged_update(app: AppHandle, state: State<'_, AppState>, staged_path: 
     let _ = std::fs::remove_file(&canon_staged);
     state.engine.kill_child();
 
-    let _ = Command::new(&cur_exe).spawn();
+    // Signal the new instance to wait briefly so this process fully releases WebView2 & port 47120
+    let _ = Command::new(&cur_exe)
+        .env("STREAM_TIMER_RELAUNCH_WAIT", "1")
+        .spawn();
     app.exit(0);
     Ok(())
 }
@@ -716,11 +719,22 @@ fn build_tray(app: &AppHandle, engine: Arc<SharedEngine>) -> tauri::Result<()> {
 // ------------------------------------------------ Main Entrypoint -----------
 
 fn main() {
-    // Clean up previous self-update backup binary if present
+    // When relaunching right after a self-update, wait cleanly for the previous process to exit
+    // and release WebView2 user-data-dir + port 47120 + old binary handle.
+    if std::env::var_os("STREAM_TIMER_RELAUNCH_WAIT").is_some() {
+        std::thread::sleep(Duration::from_millis(850));
+    }
+
+    // Clean up previous self-update backup binary if present (retry briefly on Windows handle release)
     if let Ok(cur_exe) = std::env::current_exe() {
         let old_exe = cur_exe.with_extension("exe.old");
         if old_exe.is_file() {
-            let _ = std::fs::remove_file(old_exe);
+            for _ in 0..5 {
+                if std::fs::remove_file(&old_exe).is_ok() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
         }
     }
 
