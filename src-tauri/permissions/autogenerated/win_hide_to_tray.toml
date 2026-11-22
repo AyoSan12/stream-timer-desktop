@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-win-hide-to-tray"
+description = "Enables the win_hide_to_tray command without any pre-configured scope."
+commands.allow = ["win_hide_to_tray"]
+
+[[permission]]
+identifier = "deny-win-hide-to-tray"
+description = "Denies the win_hide_to_tray command without any pre-configured scope."
+commands.deny = ["win_hide_to_tray"]

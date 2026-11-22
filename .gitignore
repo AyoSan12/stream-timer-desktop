@@ -1,0 +1,14 @@
+# Build outputs & local binaries (distributed via GitHub Releases)
+src-tauri/target/
+Stream Timer.exe
+*.exe
+*.exe.old
+latest.json
+
+# Local dependencies & test artifacts
+node_modules/
+evidence/
+.env
+*.log
+*.tmp
+*.stbackup

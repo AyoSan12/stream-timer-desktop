@@ -1,0 +1,105 @@
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  background: #000000;
+}
+
+body[data-bg="transparent"] { background: transparent; }
+body[data-bg="chroma"] { background: #00b140; }
+
+.stage {
+  width: 100vw;
+  height: 100vh;
+  padding: 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.stage[data-pos="bottom-right"] { justify-content: flex-end; align-items: flex-end; }
+.stage[data-pos="top-left"] { justify-content: flex-start; align-items: flex-start; }
+.stage[data-pos="top-right"] { justify-content: flex-end; align-items: flex-start; }
+.stage[data-pos="center"] { justify-content: center; align-items: center; }
+
+.overlay-card {
+  position: relative;
+  min-width: 260px;
+  padding: 18px 26px;
+  border-radius: 20px;
+  background-color: rgba(29, 29, 31, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  text-align: center;
+}
+
+.rush-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 214, 10, 0.2);
+  color: #ffd60a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.timer-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2997ff;
+}
+
+.countdown {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 42px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 4px 0;
+}
+
+.total-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.total-label { color: rgba(255, 255, 255, 0.65); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.total-val { font-family: "SF Mono", monospace; font-weight: 700; color: #2997ff; }
+
+.credit-toast {
+  position: absolute;
+  top: -16px;
+  right: 16px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #30d158;
+  color: #000000;
+  font-family: "SF Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 20px rgba(48, 209, 88, 0.35);
+  animation: toastRise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes toastRise {
+  from { opacity: 0; transform: translateY(10px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stream Timer — OBS Source</title>
+<link rel="stylesheet" href="/source.css">
+</head>
+<body data-bg="dark">
+<main id="stage" class="stage" data-pos="bottom-left">
+  <section id="card" class="overlay-card" aria-live="off">
+    <div id="creditToast" class="credit-toast" hidden></div>
+    <div id="rushBadge" class="rush-badge" hidden>BILLING RUSH LV.1</div>
+    <div id="timerLabel" class="timer-label">STREAM TIMER</div>
+    <div id="countdown" class="countdown" role="timer">00:00:00</div>
+    <div id="totalRow" class="total-row">
+      <span id="totalLabel" class="total-label">TOTAL ADDED</span>
+      <span id="totalVal" class="total-val">0h 0m</span>
+    </div>
+  </section>
+</main>
+<script type="module">
+import { remainingAt, formatSeconds, formatClock } from '/js/timer-client.js';
+import { createTimerLink } from '/js/timer-link.js';
+
+const qs = new URLSearchParams(window.location.search);
+const bgOverride = qs.get('bg');
+const popupOverride = qs.get('popup');
+
+const stage = document.getElementById('stage');
+const card = document.getElementById('card');
+const rushBadge = document.getElementById('rushBadge');
+const timerLabel = document.getElementById('timerLabel');
+const countdown = document.getElementById('countdown');
+const totalRow = document.getElementById('totalRow');
+const totalLabel = document.getElementById('totalLabel');
+const totalVal = document.getElementById('totalVal');
+const creditToast = document.getElementById('creditToast');
+
+let snap = null;
+let cfg = { timerName: 'Stream Timer', totalName: 'Total Added', showTimer: true, showTotal: true, showRush: true, bgMode: 'dark', textColor: '#ffffff', accentColor: '#2997ff', fontSize: 42, position: 'bottom-left', opacity: 92, popup: true, rushOn: false, rushLv: 1 };
+let toastTimer = null;
+
+function applyStyle() {
+  document.body.dataset.bg = bgOverride || cfg.bgMode || 'dark';
+  stage.dataset.pos = cfg.position || 'bottom-left';
+  card.style.backgroundColor = `rgba(29, 29, 31, ${((cfg.opacity ?? 92) / 100).toFixed(2)})`;
+  rushBadge.hidden = !(cfg.rushOn && cfg.showRush);
+  rushBadge.textContent = `BILLING RUSH LV.${cfg.rushLv || 1}`;
+  timerLabel.hidden = !cfg.showTimer;
+  countdown.hidden = !cfg.showTimer;
+  timerLabel.textContent = cfg.rushOn ? 'BILLING RUSH' : (cfg.timerName || 'Stream Timer').toUpperCase();
+  timerLabel.style.color = cfg.rushOn ? '#ffd60a' : (cfg.accentColor || '#2997ff');
+  countdown.style.color = cfg.textColor || '#ffffff';
+  countdown.style.fontSize = `${cfg.fontSize || 42}px`;
+  if (cfg.fontFamily) countdown.style.fontFamily = cfg.fontFamily;
+  totalRow.hidden = !cfg.showTotal;
+  totalLabel.textContent = (cfg.totalName || 'Total Added').toUpperCase();
+  totalVal.style.color = cfg.accentColor || '#2997ff';
+  if (typeof cfg.totalCreditMs === 'number') {
+    const mins = Math.floor(cfg.totalCreditMs / 60000);
+    const txt = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    totalVal.textContent = txt;
+    totalRow.dataset.value = txt;
+  }
+}
+
+function showPopup(deltaMs) {
+  if (popupOverride === 'off' || cfg.popup === false) return;
+  const sec = Math.round(deltaMs / 1000);
+  if (sec <= 0) return;
+  if (toastTimer) clearTimeout(toastTimer);
+  creditToast.textContent = `+${formatClock(sec)}`;
+  creditToast.hidden = false;
+  toastTimer = setTimeout(() => { toastTimer = null; creditToast.hidden = true; }, 2600);
+}
+
+const link = createTimerLink({
+  streamUrl: '/api/stream?role=obs',
+  stateUrl: '/api/state',
+  onFrame: (next) => {
+    if (snap && next.revision > snap.revision) {
+      const now = performance.now();
+      const delta = (remainingAt(next, now) ?? 0) - (remainingAt(snap, now) ?? 0);
+      if (delta >= 950) showPopup(delta);
+    }
+    snap = next;
+  },
+  onOverlay: (nextCfg) => { cfg = { ...cfg, ...nextCfg }; applyStyle(); },
+});
+link.start();
+
+function tick() {
+  const rem = remainingAt(snap, performance.now());
+  countdown.textContent = formatClock(formatSeconds(rem ?? 0));
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-win-ready-show"
+description = "Enables the win_ready_show command without any pre-configured scope."
+commands.allow = ["win_ready_show"]
+
+[[permission]]
+identifier = "deny-win-ready-show"
+description = "Denies the win_ready_show command without any pre-configured scope."
+commands.deny = ["win_ready_show"]

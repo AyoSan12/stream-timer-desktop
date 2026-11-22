@@ -1,0 +1,56 @@
+name: Build & Publish Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Engine & Model Tests
+        run: |
+          node tests/model.test.mjs
+          node tests/engine.test.mjs
+
+      - name: Build Standalone Native Windows Binary (Tauri v2)
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Stage Release Binary & Generate SHA-256 latest.json Manifest
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag.StartsWith("v")) {
+            $pkg = Get-Content package.json | ConvertFrom-Json
+            $tag = "v$($pkg.version)"
+          }
+          $ver = $tag.TrimStart("v")
+          Copy-Item "src-tauri\target\release\stream-timer-desktop.exe" "Stream Timer.exe" -Force
+          Copy-Item "Stream Timer.exe" "Stream-Timer.exe" -Force
+          $dlUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/Stream-Timer.exe"
+          node scripts/build-release-manifest.mjs --version "$ver" --url "$dlUrl" --notes "Stream Timer $tag — Automated Windows Release"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Stream-Timer.exe
+            latest.json

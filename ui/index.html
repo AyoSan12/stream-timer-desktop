@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Timer</title>
+<script>
+(() => {
+  const sp = new URLSearchParams(location.search);
+  const qTheme = sp.get('theme');
+  const saved = (() => { try { return localStorage.getItem('st_appearance'); } catch { return null; } })();
+  const mode = (qTheme === 'dark' || qTheme === 'light') ? qTheme : (saved || 'system');
+  const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
+<style>
+  html[data-theme="dark"], html[data-theme="dark"] body { background-color: #0b0b0d; color: #f5f5f7; }
+  html[data-theme="light"], html[data-theme="light"] body { background-color: #f5f5f7; color: #1d1d1f; }
+</style>
+<link rel="stylesheet" href="/styles/tokens.css">
+<link rel="stylesheet" href="/styles/app.css">
+</head>
+<body>
+
+<!-- Frameless Native Windows Titlebar (auto-shown & fixed at top inside Tauri v2) -->
+<div id="desktopTitlebar" class="desktop-titlebar" data-tauri-drag-region hidden>
+  <div class="tb-brand" data-tauri-drag-region>
+    <span id="tbBrandIcon" class="tb-icon-badge" aria-hidden="true"></span>
+    <span class="tb-title" data-i18n="app.name">Stream Timer</span>
+  </div>
+  <div class="tb-controls">
+    <button id="tbTrayBtn" type="button" class="tb-btn" title="Hide to System Tray" aria-label="Hide to System Tray" hidden>
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2v5.5M3.5 5.2L6 7.7l2.5-2.5"/><path d="M2 10h8"/>
+      </svg>
+    </button>
+    <button id="tbMinBtn" type="button" class="tb-btn" title="Minimize" aria-label="Minimize window">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M1.5 5h7"/>
+      </svg>
+    </button>
+    <button id="tbMaxBtn" type="button" class="tb-btn" title="Maximize" aria-label="Maximize window">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round">
+        <rect x="1.5" y="1.5" width="7" height="7" rx="1.4"/>
+      </svg>
+    </button>
+    <button id="tbCloseBtn" type="button" class="tb-btn is-close" title="Close" aria-label="Close window">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round">
+        <path d="M1.8 1.8l6.4 6.4M8.2 1.8l-6.4 6.4"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- Apple Intro Splash Screen -->
+<div id="appleSplash" class="apple-splash" aria-live="polite">
+  <div id="splashMark" class="splash-mark" aria-hidden="true"></div>
+  <h1 class="splash-title" data-i18n="app.name">Stream Timer</h1>
+  <div class="splash-bar" aria-hidden="true"><span></span></div>
+  <p id="splashStatus" class="splash-sub" data-i18n="splash.booting">Starting local engine…</p>
+</div>
+
+<!-- 6-Step Apple Setup Assistant (First Launch & Add New Profile) -->
+<main id="onboardingRoot" class="onboarding-root" hidden>
+  <section class="ob-card" aria-label="Setup Assistant">
+    <div class="ob-top">
+      <div id="obDots" class="ob-dots" aria-hidden="true"></div>
+      <div class="btn-row">
+        <span id="obStepTag" class="ob-step-tag">Step 1 of 6</span>
+        <button id="obCancelAddBtn" type="button" class="btn btn-link" hidden data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+
+    <div id="obStage" class="ob-stage">
+      <!-- Step 0: Hello & Language -->
+      <div id="obStep0" class="ob-panel">
+        <div class="ob-hero-hello">
+          <div id="obHelloMark" class="splash-mark" style="width:56px;height:56px;border-radius:16px;margin:0 auto 10px;animation:none;" aria-hidden="true"></div>
+          <h2 id="obHelloWord" class="ob-hello-word">Hello</h2>
+          <p class="ob-sub" style="margin-bottom:0;" data-i18n="ob.welcome.sub">Choose your preferred language to set up your local streaming workspace.</p>
+        </div>
+        <div id="obLangGrid" class="ob-lang-grid"></div>
+      </div>
+
+      <!-- Step 1: Profile Identity & Base Currency -->
+      <div id="obStep1" class="ob-panel" hidden>
+        <h2 class="ob-title" data-i18n="ob.profile.title">Create Your Streamer Profile</h2>
+        <p class="ob-sub" data-i18n="ob.profile.sub">Each profile has its own isolated local database, currency, timer rules, and financial archive.</p>
+        <div class="stack-sm">
+          <div class="row-2">
+            <label class="field"><span data-i18n="ob.profile.name">Profile Name</span>
+              <input id="obProfName" type="text" maxlength="60" placeholder="e.g. Main Gaming Channel" data-i18n-ph="ob.profile.namePh">
+            </label>
+            <label class="field"><span data-i18n="ob.profile.handle">Channel Handle (Optional)</span>
+              <input id="obProfHandle" type="text" maxlength="60" placeholder="@yourchannel" data-i18n-ph="ob.profile.handlePh">
+            </label>
+          </div>
+          <div class="row-2">
+            <label class="field"><span data-i18n="ob.profile.currency">Operating Base Currency</span>
+              <select id="obBaseCurrency"></select>
+            </label>
+            <div class="field">
+              <span data-i18n="ob.profile.color">Profile Accent</span>
+              <div id="obColorSwatches" class="ob-swatch-row" style="height:37px;"></div>
+            </div>
+          </div>
+          <p class="helper-text" data-i18n="ob.profile.currencyHint">All timer tiers, membership pricing, and net revenue reports use this currency. 166 donor currencies auto-convert live.</p>
+          <div id="obCurrencyPreview" class="mono-box"></div>
+        </div>
+      </div>
+
+      <!-- Step 2: Mandatory Streamlabs Guided Setup -->
+      <div id="obStep2" class="ob-panel" hidden>
+        <h2 class="ob-title" data-i18n="ob.sl.title">Connect Streamlabs</h2>
+        <p class="ob-sub" style="margin-bottom:10px;" data-i18n="ob.sl.sub">Streamlabs Socket API powers real-time YouTube Super Chats, Memberships, Jewels, Twitch Subs, Bits &amp; Tips locally with zero port forwarding.</p>
+        <div id="obSlIllustration"></div>
+        <div class="ob-steps-list">
+          <span data-i18n="ob.sl.step1">1. Open Streamlabs Dashboard → Settings → API Settings.</span>
+          <span data-i18n="ob.sl.step2">2. Switch to the API Tokens tab.</span>
+          <span data-i18n="ob.sl.step3">3. Click Copy on "Your Socket API Token" and paste it below.</span>
+        </div>
+        <div class="stack-sm">
+          <label class="field"><span data-i18n="ob.sl.tokenLabel">Streamlabs Socket API Token (Required)</span>
+            <input id="obSlToken" type="password" autocomplete="off" placeholder="Paste Your Socket API Token here" data-i18n-ph="ob.sl.tokenPh">
+          </label>
+          <div class="btn-row" style="justify-content:space-between;">
+            <div class="btn-row">
+              <button id="obSlVerifyBtn" type="button" class="btn btn-sm btn-pill" data-i18n="ob.sl.verify">Verify Live Connection</button>
+              <a class="btn btn-link" href="https://streamlabs.com/dashboard#/settings/api-settings" target="_blank" rel="noopener" data-i18n="ob.sl.openLink">Open Streamlabs API Settings ↗</a>
+            </div>
+            <span id="obSlVerifyStatus" class="pill" hidden></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Streaming Platforms & Quick Pricing -->
+      <div id="obStep3" class="ob-panel" hidden>
+        <h2 class="ob-title" data-i18n="ob.plat.title">Where Do You Stream?</h2>
+        <p class="ob-sub" data-i18n="ob.plat.sub">Select your streaming platform(s) to tailor pricing catalogs, membership tiers, and revenue splits.</p>
+        <div class="ob-stream-grid">
+          <button id="obStreamYt" type="button" class="ob-choice-card is-selected" data-stream-plat="youtube">
+            <strong>YouTube Live</strong>
+            <span data-i18n="ob.plat.ytDesc">Super Chat, Super Stickers, Custom Membership Levels, Gift Memberships &amp; Live Jewels.</span>
+          </button>
+          <button id="obStreamTw" type="button" class="ob-choice-card" data-stream-plat="twitch">
+            <strong>Twitch</strong>
+            <span data-i18n="ob.plat.twDesc">Prime, Tier 1 / 2 / 3 Subscriptions, Gift Subs &amp; Bits with customizable Partner split.</span>
+          </button>
+        </div>
+        <div id="obTwSplitWrap" class="card" style="padding:14px 16px;" hidden>
+          <label class="field"><span data-i18n="ob.plat.twSplit">Twitch Revenue Split (Finance)</span>
+            <select id="obTwSplitSelect">
+              <option value="50">Standard 50 / 50 (50% Twitch cut)</option>
+              <option value="40">Partner Plus 60 / 40 (40% Twitch cut)</option>
+              <option value="30">Partner Plus 70 / 30 (30% Twitch cut)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- Step 4: Global & Regional Donation Gateways -->
+      <div id="obStep4" class="ob-panel" hidden>
+        <h2 class="ob-title" data-i18n="ob.dono.title">Choose Your Donation Platforms</h2>
+        <p class="ob-sub" style="margin-bottom:10px;" data-i18n="ob.dono.sub">Pick the global or regional tipping services you use. Country badges show where each platform operates.</p>
+        <div id="obDonationCatalog" class="ob-platform-scroll"></div>
+      </div>
+
+      <!-- Step 5: Tailored Guided Setup & Launch -->
+      <div id="obStep5" class="ob-panel" hidden>
+        <h2 class="ob-title" data-i18n="ob.setup.title">Configure Selected Platforms</h2>
+        <p class="ob-sub" style="margin-bottom:10px;" data-i18n="ob.setup.sub">Streamlabs is ready. Configure any extra platforms now — or adjust them anytime in Integrations.</p>
+        <div id="obSetupCards" class="ob-setup-list"></div>
+        <div id="obObsIllustration" style="margin-top:10px;"></div>
+        <p class="helper-text" style="margin-top:6px;" data-i18n="ob.setup.obsNote">Your private local OBS Browser Source URL will be ready immediately inside Home &amp; OBS tabs.</p>
+      </div>
+    </div>
+
+    <div class="ob-footer">
+      <button id="obBackBtn" type="button" class="btn btn-pill" data-i18n="common.back">Back</button>
+      <div class="btn-row">
+        <span id="obValidationMsg" class="helper-text" style="color:var(--danger);"></span>
+        <button id="obNextBtn" type="button" class="btn btn-primary btn-pill" data-i18n="ob.welcome.cta">Get Started</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Main 8-Tab Apple Workspace (Unified Single Titlebar + Toolbar in Desktop mode!) -->
+<div id="appRoot" hidden>
+  <header id="appTopbar" class="topbar" data-tauri-drag-region>
+    <div class="topbar-inner" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <span id="brandMark" class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name" data-i18n="app.name">Stream Timer</span>
+      </div>
+
+      <nav id="mainNav" class="nav-segment" role="tablist" aria-label="Control panel systems">
+        <span id="navThumb" class="nav-thumb" aria-hidden="true"></span>
+        <button type="button" id="nav-home" class="nav-btn active" role="tab" aria-selected="true" data-view="home" data-i18n="nav.home">Home</button>
+        <button type="button" id="nav-timer" class="nav-btn" role="tab" aria-selected="false" data-view="timer" data-i18n="nav.timer">Timer</button>
+        <button type="button" id="nav-donations" class="nav-btn" role="tab" aria-selected="false" data-view="donations" data-i18n="nav.donations">Donations</button>
+        <button type="button" id="nav-finance" class="nav-btn" role="tab" aria-selected="false" data-view="finance" data-i18n="nav.finance">Finance</button>
+        <button type="button" id="nav-rules" class="nav-btn" role="tab" aria-selected="false" data-view="rules" data-i18n="nav.rules">Rules</button>
+        <button type="button" id="nav-overlay" class="nav-btn" role="tab" aria-selected="false" data-view="overlay" data-i18n="nav.overlay">OBS</button>
+        <button type="button" id="nav-integrations" class="nav-btn" role="tab" aria-selected="false" data-view="integrations" data-i18n="nav.integrations">Integrations</button>
+        <button type="button" id="nav-settings" class="nav-btn" role="tab" aria-selected="false" data-view="settings" data-i18n="nav.settings">Settings</button>
+      </nav>
+
+      <div class="header-right">
+        <span id="connPill" class="conn-dot-pill" data-state="live">
+          <span class="dot-live" aria-hidden="true"></span>
+          <span id="connLabel" data-i18n="status.live">Live</span>
+        </span>
+        <button id="profileMenuBtn" type="button" class="profile-pill-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Profile menu">
+          <span id="profileAvatar" class="prof-avatar">A</span>
+          <span id="profileNameShort" class="prof-name-short">Profile</span>
+          <span id="profUpdateDot" class="update-dot" hidden aria-hidden="true"></span>
+          <span aria-hidden="true" style="font-size:10px;color:var(--muted);">&#9662;</span>
+        </button>
+
+        <!-- Inline Native Window Controls (shown ONLY inside Tauri Desktop unified topbar) -->
+        <div id="topbarWinControls" class="tb-controls tb-inline" hidden>
+          <span class="tb-sep" aria-hidden="true"></span>
+          <button id="topTrayBtn" type="button" class="tb-btn" title="Hide to System Tray" aria-label="Hide to System Tray">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 2v5.5M3.5 5.2L6 7.7l2.5-2.5"/><path d="M2 10h8"/>
+            </svg>
+          </button>
+          <button id="topMinBtn" type="button" class="tb-btn" title="Minimize" aria-label="Minimize window">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M1.5 5h7"/>
+            </svg>
+          </button>
+          <button id="topMaxBtn" type="button" class="tb-btn" title="Maximize" aria-label="Maximize window">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round">
+              <rect x="1.5" y="1.5" width="7" height="7" rx="1.4"/>
+            </svg>
+          </button>
+          <button id="topCloseBtn" type="button" class="tb-btn is-close" title="Close" aria-label="Close window">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round">
+              <path d="M1.8 1.8l6.4 6.4M8.2 1.8l-6.4 6.4"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Apple Profile Popover Menu -->
+        <div id="profilePopover" class="profile-popover" role="menu" hidden>
+          <div class="pop-head">
+            <span id="popAvatar" class="prof-avatar">A</span>
+            <div>
+              <strong id="popName">Profile</strong>
+              <span id="popMeta">EN · USD</span>
+            </div>
+          </div>
+
+          <button id="popUpdateBtn" type="button" class="pop-item pop-update-banner" hidden>
+            <span id="popUpdateLabel">Software Update Available</span>
+            <span class="pill pill-ok">New</span>
+          </button>
+
+          <div>
+            <p class="pop-kicker" data-i18n="prof.appearance">Appearance</p>
+            <div class="segmented" style="width:100%;display:grid;grid-template-columns:1fr 1fr 1fr;" role="radiogroup" aria-label="Appearance theme">
+              <button type="button" class="seg-btn" data-theme-choice="system" data-i18n="prof.appAuto">Auto</button>
+              <button type="button" class="seg-btn" data-theme-choice="light" data-i18n="prof.appLight">Light</button>
+              <button type="button" class="seg-btn" data-theme-choice="dark" data-i18n="prof.appDark">Dark</button>
+            </div>
+          </div>
+
+          <hr class="pop-divider">
+
+          <div>
+            <p class="pop-kicker" data-i18n="prof.switch">Switch Profile</p>
+            <div id="popProfileList" class="pop-list"></div>
+          </div>
+
+          <hr class="pop-divider">
+
+          <button id="popEditBtn" type="button" class="pop-item" data-i18n="prof.edit">Edit Profile…</button>
+          <button id="popBackupBtn" type="button" class="pop-item" data-i18n="prof.backup">Export Backup (.stbackup)</button>
+          <button id="popImportBtn" type="button" class="pop-item" data-i18n="prof.import">Import Backup…</button>
+          <button id="popAddBtn" type="button" class="pop-item" style="color:var(--accent);font-weight:600;" data-i18n="prof.addNew">Add New Profile…</button>
+          <button id="popDeleteBtn" type="button" class="pop-item is-danger" data-i18n="prof.delete">Delete Profile…</button>
+          <input id="backupFileInput" type="file" accept=".stbackup,.json" hidden aria-label="Import backup file">
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <p id="toast" class="toast-message" aria-live="polite"></p>
+
+    <!-- ═══════════════ VIEW 1: HOME (Pre-Flight & Live Glance Cockpit) ═══════════════ -->
+    <section class="view active" id="view-home" role="tabpanel" aria-labelledby="nav-home">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="home.title">Home</h1>
+          <p class="view-sub" data-i18n="home.sub">Pre-flight readiness, live stream pulse, and quick actions at a glance.</p>
+        </div>
+        <span id="homeProfilePill" class="pill">USD · EN</span>
+      </div>
+
+      <section class="home-hero" aria-label="Live stream pulse">
+        <div class="home-clock-block">
+          <div id="homeClock" class="home-clock">00:00:00</div>
+          <div>
+            <span id="homeStatePill" class="pill pill-accent">PAUSED</span>
+            <div id="homeObsCount" style="font-size:12px;color:rgba(255,255,255,0.65);margin-top:4px;">OBS Overlay: 0 connected</div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="homeToggleBtn" type="button" class="btn btn-hero-primary">Resume</button>
+          <button id="homeAdd5Btn" type="button" class="btn btn-hero-dark">+5 min</button>
+          <button id="homeCopyObsBtn" type="button" class="btn btn-hero-dark" data-i18n="home.copyObs">Copy OBS URL</button>
+        </div>
+      </section>
+
+      <div class="home-bento">
+        <section class="card" aria-labelledby="homeReadyTitle">
+          <div class="card-head">
+            <h2 id="homeReadyTitle" class="card-title" data-i18n="home.readiness">Pre-Flight Readiness</h2>
+            <span class="card-caption" data-i18n="home.readinessSub">Click any item to configure</span>
+          </div>
+          <div id="homeReadinessList" class="check-list"></div>
+        </section>
+
+        <section class="card" aria-labelledby="homeRevTitle">
+          <div class="card-head">
+            <h2 id="homeRevTitle" class="card-title" data-i18n="home.revenuePulse">Revenue Pulse</h2>
+            <button type="button" class="btn btn-link" data-goto="finance" data-i18n="home.openFinance">Open Finance →</button>
+          </div>
+          <div class="rev-pulse-main">
+            <div class="rev-pulse-lbl" data-i18n="home.activeNet">Active Cycle Net</div>
+            <div id="homeActiveNet" class="rev-pulse-val">$0.00</div>
+            <div id="homeActiveSub" class="rev-pulse-sub">Gross $0.00 · 0 tx</div>
+          </div>
+          <div class="rev-pulse-prev">
+            <div>
+              <div style="font-size:11px;color:var(--muted);" data-i18n="home.lastArchived">Last Archived Cycle</div>
+              <strong id="homePrevLabel">—</strong>
+            </div>
+            <strong id="homePrevNet" style="font-family:var(--font-mono);">—</strong>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="homeQaTitle">
+          <div class="card-head">
+            <h2 id="homeQaTitle" class="card-title" data-i18n="home.quickActions">Quick Controls</h2>
+          </div>
+          <div class="qa-grid">
+            <button id="homeQaRush" type="button" class="qa-tile">
+              <strong data-i18n="home.qaRush">Billing Rush</strong>
+              <span id="homeQaRushSub">Inactive</span>
+            </button>
+            <button type="button" class="qa-tile" data-goto="donations">
+              <strong data-i18n="home.qaGift">Record Gift</strong>
+              <span>Manual / Cash</span>
+            </button>
+            <button id="homeQaCycle" type="button" class="qa-tile">
+              <strong data-i18n="home.qaCycle">New Cycle (0)</strong>
+              <span>Archive &amp; Reset</span>
+            </button>
+            <button id="homeQaExport" type="button" class="qa-tile">
+              <strong data-i18n="home.qaExport">Export Report</strong>
+              <span>Excel · CSV · PDF</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" aria-labelledby="homeActTitle">
+        <div class="card-head">
+          <h2 id="homeActTitle" class="card-title" data-i18n="home.latestActivity">Latest Activity</h2>
+          <button type="button" class="btn btn-link" data-goto="donations" data-i18n="home.viewAll">View All →</button>
+        </div>
+        <div id="homeActivityStrip" class="activity-strip"></div>
+      </section>
+    </section>
+
+    <!-- ═══════════════ VIEW 2: TIMER ═══════════════ -->
+    <section class="view" id="view-timer" role="tabpanel" aria-labelledby="nav-timer">
+      <section class="timer-hero" aria-label="Live countdown">
+        <div>
+          <span id="timerStatePill" class="pill pill-accent">PAUSED</span>
+        </div>
+        <div id="countdown" class="countdown" role="timer" aria-label="Time remaining">00:00:00</div>
+        <div class="hero-controls">
+          <button id="toggleBtn" type="button" class="btn btn-hero-primary" data-i18n="timer.resume">Resume</button>
+          <button type="button" class="btn btn-hero-dark" data-add="60">+1m</button>
+          <button type="button" class="btn btn-hero-dark" data-add="300">+5m</button>
+          <button type="button" class="btn btn-hero-dark" data-sub="60">-1m</button>
+          <button type="button" class="btn btn-hero-dark" data-sub="300">-5m</button>
+          <button id="resetTimerBtn" type="button" class="btn btn-hero-danger" data-i18n="timer.reset">Reset</button>
+        </div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card" aria-labelledby="precTitle">
+          <div class="card-head">
+            <h2 id="precTitle" class="card-title" data-i18n="timer.precision">Precision Control</h2>
+          </div>
+          <div class="row-2" style="align-items:end;margin-bottom:12px;">
+            <label class="field"><span data-i18n="timer.setMinutes">Set minutes</span>
+              <input id="setMinutesIn" type="number" min="0" step="1" value="10">
+            </label>
+            <button id="setMinutesBtn" type="button" class="btn btn-dark btn-pill">Set</button>
+          </div>
+          <hr class="hairline">
+          <p class="section-kicker" data-i18n="timer.manualAdj">Manual Adjustment</p>
+          <div class="row-3" style="margin-bottom:10px;">
+            <label class="field">Hours<input id="adjH" type="number" min="0" value="0"></label>
+            <label class="field">Minutes<input id="adjM" type="number" min="0" value="5"></label>
+            <label class="field">Seconds<input id="adjS" type="number" min="0" value="0"></label>
+          </div>
+          <div class="btn-row">
+            <button id="adjAddBtn" type="button" class="btn btn-primary btn-pill btn-sm">Add</button>
+            <button id="adjSubBtn" type="button" class="btn btn-pill btn-sm">Subtract</button>
+            <button id="adjSetBtn" type="button" class="btn btn-pill btn-sm">Set Exact</button>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="sessOvTitle">
+          <div class="card-head">
+            <h2 id="sessOvTitle" class="card-title" data-i18n="timer.overview">Session Overview</h2>
+          </div>
+          <div class="stack-sm">
+            <div class="fin-deduct-row"><span data-i18n="timer.gross">Gross Donations</span><strong id="statGross" style="font-family:var(--font-mono);">$0.00</strong></div>
+            <div class="fin-deduct-row">
+              <span data-i18n="timer.added">Total Time Added</span>
+              <div class="btn-row">
+                <strong id="statAdded" style="font-family:var(--font-mono);">0h 0m</strong>
+                <button id="resetAddedBtn" type="button" class="btn btn-link" data-i18n="timer.resetAdded">Reset</button>
+              </div>
+            </div>
+            <div class="fin-deduct-row"><span data-i18n="timer.count">Donation Count</span><strong id="statCount" style="font-family:var(--font-mono);">0</strong></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 3: DONATIONS ═══════════════ -->
+    <section class="view" id="view-donations" role="tabpanel" aria-labelledby="nav-donations">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="dono.title">Donations</h1>
+          <p class="view-sub" data-i18n="dono.sub">100% gross amount enters timer credits according to your channel catalog and triggers.</p>
+        </div>
+        <div class="btn-row">
+          <span id="donoChipGross" class="pill">$0.00</span>
+          <span id="donoChipAdded" class="pill">0h 0m</span>
+        </div>
+      </div>
+
+      <div class="grid-donations">
+        <section class="card" aria-labelledby="recDonoTitle">
+          <div class="card-head">
+            <h2 id="recDonoTitle" class="card-title" data-i18n="dono.record">Record Donation</h2>
+            <span id="donoPreviewPill" class="pill pill-accent">+00:00:00</span>
+          </div>
+          <div class="stack-sm">
+            <label class="field"><span data-i18n="dono.donor">Donor Name</span>
+              <input id="donoGifter" type="text" placeholder="Viewer name" maxlength="120">
+            </label>
+            <label class="field"><span data-i18n="dono.source">Platform &amp; Type</span>
+              <select id="donoSource">
+                <optgroup label="Tips &amp; Super Chat">
+                  <option value="SuperChat">YouTube Super Chat</option>
+                  <option value="streamlabs">Streamlabs Tip</option>
+                  <option value="streamelements">StreamElements Tip</option>
+                  <option value="kofi">Ko-fi</option>
+                  <option value="tako">Tako.id</option>
+                  <option value="saweria">Saweria</option>
+                  <option value="sociabuzz">SociaBuzz</option>
+                  <option value="trakteer">Trakteer</option>
+                  <option value="chzzk">Naver Chzzk (Cheese)</option>
+                  <option value="livepix">LivePix</option>
+                  <option value="doneru">Doneru / OFUSE</option>
+                  <option value="Manual">Manual Cash / Transfer</option>
+                </optgroup>
+                <optgroup label="YouTube Membership &amp; Gifts">
+                  <option value="yt_member">YouTube Membership (Individual)</option>
+                  <option value="yt_gift_member">YouTube Gift Membership</option>
+                  <option value="yt_jewels">YouTube Jewels / Gifts</option>
+                </optgroup>
+                <optgroup label="Twitch Subscriptions &amp; Bits">
+                  <option value="twitch_sub">Twitch Sub (Individual)</option>
+                  <option value="twitch_prime">Twitch Prime Sub</option>
+                  <option value="twitch_gift_sub">Twitch Gift Sub</option>
+                  <option value="twitch_bits">Twitch Bits</option>
+                </optgroup>
+              </select>
+            </label>
+            <div id="donoCashWrap" class="row-2">
+              <label class="field"><span data-i18n="dono.amount">Amount</span>
+                <input id="donoAmount" type="number" min="0.01" step="any" value="10">
+              </label>
+              <label class="field"><span data-i18n="dono.currency">Currency</span>
+                <select id="donoCurrency"></select>
+              </label>
+            </div>
+            <div id="donoYtWrap" class="row-2" hidden>
+              <label class="field">Membership Level<select id="donoYtLevel"></select></label>
+              <label class="field" id="donoYtQtyWrap">Quantity<input id="donoYtQty" type="number" min="1" value="1"></label>
+            </div>
+            <div id="donoTwWrap" class="row-2" hidden>
+              <label class="field">Twitch Tier<select id="donoTwTier"><option value="1000">Tier 1</option><option value="2000">Tier 2</option><option value="3000">Tier 3</option></select></label>
+              <label class="field" id="donoTwQtyWrap">Quantity<input id="donoTwQty" type="number" min="1" value="1"></label>
+            </div>
+            <div id="donoUnitsWrap" hidden>
+              <label class="field"><span id="donoUnitsLbl">Units</span><input id="donoUnitsIn" type="number" min="1" value="100"></label>
+            </div>
+            <label class="field"><span data-i18n="dono.message">Message</span>
+              <input id="donoMessage" type="text" placeholder="Keep it going!" maxlength="500">
+            </label>
+            <button id="donoSubmitBtn" type="button" class="btn btn-primary btn-pill btn-full" data-i18n="dono.submit">Add Donation &amp; Credit Time</button>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="histTitle">
+          <div class="card-head">
+            <h2 id="histTitle" class="card-title" data-i18n="dono.history">Donation History</h2>
+            <div class="btn-row">
+              <button id="donoSelectBtn" type="button" class="btn btn-sm" data-i18n="dono.select">Select</button>
+              <button id="donoRefreshBtn" type="button" class="btn btn-sm" data-i18n="common.refresh">Refresh</button>
+            </div>
+          </div>
+          <div class="row-2" style="margin-bottom:10px;">
+            <label class="field"><span data-i18n="common.search">Search</span>
+              <input id="donoSearch" type="search" placeholder="Donor, platform, currency…">
+            </label>
+            <label class="field">Sort
+              <select id="donoSort">
+                <option value="latest">Latest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="highest">Highest amount</option>
+              </select>
+            </label>
+          </div>
+          <div id="donoBulkBar" class="fin-scope-bar" style="padding:7px 11px;margin-bottom:8px;" hidden>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;">
+              <input id="donoSelectAll" type="checkbox"> <span id="donoSelCount">0 selected</span>
+            </label>
+            <div class="btn-row">
+              <button id="donoDelSelBtn" type="button" class="btn btn-danger btn-pill btn-sm" disabled data-i18n="common.delete">Delete</button>
+              <button id="donoSelDoneBtn" type="button" class="btn btn-pill btn-sm" data-i18n="common.done">Done</button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th id="donoSelColHead" hidden></th><th>Time</th><th>Donor</th><th>Source</th><th class="num">Gross</th><th class="num">+Timer</th><th class="num">Action</th></tr></thead>
+              <tbody id="donoBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 4: FINANCE ═══════════════ -->
+    <section class="view" id="view-finance" role="tabpanel" aria-labelledby="nav-finance">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="fin.title">Finance</h1>
+          <p class="view-sub" data-i18n="fin.sub">Gross revenue, itemized platform deductions, net take-home, archived cycles, and multi-format reports.</p>
+        </div>
+        <div class="segmented" role="tablist" aria-label="Finance views">
+          <button id="finTabOv" type="button" class="seg-btn active" data-fin-tab="overview" data-i18n="fin.tabOverview">Overview</button>
+          <button id="finTabLd" type="button" class="seg-btn" data-fin-tab="ledger" data-i18n="fin.tabLedger">Ledger</button>
+          <button id="finTabSe" type="button" class="seg-btn" data-fin-tab="sessions" data-i18n="fin.tabSessions">Sessions</button>
+          <button id="finTabFe" type="button" class="seg-btn" data-fin-tab="fees" data-i18n="fin.tabFees">Fee Rules</button>
+        </div>
+      </div>
+
+      <!-- Finance Overview -->
+      <div id="finPanelOverview">
+        <div class="fin-scope-bar">
+          <div class="btn-row">
+            <select id="finScopeSel" class="scope-pill-select" aria-label="Session scope"></select>
+            <span id="finScopeMeta" class="helper-text"></span>
+          </div>
+          <div class="btn-row">
+            <button id="finNewSessBtn" type="button" class="btn btn-pill btn-sm" data-i18n="fin.newSession">New Session (0)</button>
+            <button id="finExportBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="fin.exportReport">Export Report</button>
+          </div>
+        </div>
+        <div class="fin-kpi-grid">
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.gross">Gross Revenue</span><span id="finKpiGross" class="fin-kpi-val">$0.00</span><span id="finKpiGrossSub" class="fin-kpi-sub">0 tx</span></div>
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.deductions">Total Deductions</span><span id="finKpiDeduct" class="fin-kpi-val text-neg">-$0.00</span><span id="finKpiDeductSub" class="fin-kpi-sub">0% cut</span></div>
+          <div class="fin-kpi-card is-net"><span class="fin-kpi-lbl" data-i18n="fin.net">Net Take-Home</span><span id="finKpiNet" class="fin-kpi-val">$0.00</span><span id="finKpiNetSub" class="fin-kpi-sub">100% kept</span></div>
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.avgNet">Avg Net / Tx</span><span id="finKpiAvg" class="fin-kpi-val">$0.00</span><span id="finKpiAvgSub" class="fin-kpi-sub">Avg Gross $0.00</span></div>
+        </div>
+        <div class="grid-finance-ov">
+          <section class="card" aria-labelledby="finChanTitle">
+            <div class="card-head"><h2 id="finChanTitle" class="card-title" data-i18n="fin.breakdown">Platform &amp; Deduction Breakdown</h2></div>
+            <div class="table-scroll" style="max-height:260px;">
+              <table class="data-table">
+                <thead><tr><th>Platform</th><th class="num">Tx</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net</th></tr></thead>
+                <tbody id="finChanBody"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="finDetTitle">
+            <div class="card-head"><h2 id="finDetTitle" class="card-title" data-i18n="fin.details">Deduction Details</h2><span id="finCutBadge" class="pill pill-accent">0%</span></div>
+            <div class="fin-split-bar"><span id="finBarNet" style="background:var(--accent);width:100%"></span><span id="finBarPlat" style="background:var(--danger);width:0%"></span><span id="finBarPay" style="background:var(--warn);width:0%"></span><span id="finBarTax" style="background:var(--meta);width:0%"></span></div>
+            <div class="fin-deduct-row"><span>Platform Cuts</span><span id="finBrkPlat" class="text-neg" style="font-family:var(--font-mono);">-$0</span></div>
+            <div class="fin-deduct-row"><span>Payment % Fees</span><span id="finBrkPay" class="text-neg" style="font-family:var(--font-mono);">-$0</span></div>
+            <div class="fin-deduct-row"><span>Fixed Gateway Fees</span><span id="finBrkFix" class="text-neg" style="font-family:var(--font-mono);">-$0</span></div>
+            <div class="fin-deduct-row"><span>Tax Reserve</span><span id="finBrkTax" class="text-neg" style="font-family:var(--font-mono);">-$0</span></div>
+            <div class="fin-deduct-row is-tot"><span>Net Take-Home</span><span id="finBrkNet" style="font-family:var(--font-mono);">$0</span></div>
+            <hr class="hairline">
+            <div class="btn-row">
+              <button type="button" class="btn btn-sm" data-quick-exp="xlsx">Excel (.xlsx)</button>
+              <button type="button" class="btn btn-sm" data-quick-exp="csv">CSV</button>
+              <button type="button" class="btn btn-sm" data-quick-exp="json">JSON</button>
+              <button type="button" class="btn btn-sm" data-quick-exp="md">Markdown</button>
+              <button type="button" class="btn btn-sm" data-quick-exp="html">Print / PDF</button>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Finance Ledger -->
+      <div id="finPanelLedger" hidden>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title" data-i18n="fin.ledgerTitle">Transaction Ledger &amp; Audit Search</h2>
+            <div class="btn-row">
+              <button id="finClearBtn" type="button" class="btn btn-sm">Clear</button>
+              <button id="finLdExpBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.export">Export</button>
+            </div>
+          </div>
+          <div class="fin-filter-1">
+            <label class="field">Deep Search<input id="finSearch" type="search" placeholder="Donor, Event ID, message, currency, tier…"></label>
+            <label class="field">Session<select id="finLdSess"></select></label>
+            <label class="field">Platform<select id="finLdChan"></select></label>
+            <label class="field">Currency<select id="finLdCur"><option value="all">All</option><option value="LOCAL">Base Currency</option><option value="FOREIGN">Foreign Only</option><option value="USD">USD</option><option value="IDR">IDR</option><option value="JPY">JPY</option><option value="KRW">KRW</option><option value="EUR">EUR</option><option value="BRL">BRL</option></select></label>
+          </div>
+          <div class="fin-filter-2">
+            <label class="field">From Date &amp; Time<input id="finFromDt" type="datetime-local"></label>
+            <label class="field">To Date &amp; Time<input id="finToDt" type="datetime-local"></label>
+            <label class="field">Min Gross<input id="finMinGross" type="number" min="0" step="any" placeholder="0"></label>
+            <label class="field">Sort<select id="finSort"><option value="latest">Latest</option><option value="oldest">Oldest</option><option value="gross_desc">Highest Gross</option><option value="net_desc">Highest Net</option><option value="fee_desc">Highest Deduction</option></select></label>
+            <label style="display:inline-flex;align-items:center;gap:6px;height:37px;font-size:12px;"><input id="finIncDel" type="checkbox"> Include removed</label>
+          </div>
+          <div id="finLdSum" class="mono-box" style="margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;"></div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Date &amp; Time</th><th>Donor &amp; Event ID</th><th>Platform</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net</th><th class="num">Detail</th></tr></thead>
+              <tbody id="finLdBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Finance Sessions -->
+      <div id="finPanelSessions" class="grid-finance-ov" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="fin.sessionsTitle">Revenue Sessions Archive</h2><span id="finSessCount" class="card-caption">1 session</span></div>
+          <div id="finSessList" class="stack-sm" style="max-height:380px;overflow-y:auto;"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="fin.startCycle">Start New Revenue Cycle</h2></div>
+          <div class="stack-sm">
+            <p class="helper-text">Starts fresh revenue tracking from 0 while preserving 100% of archived sessions and transactions permanently.</p>
+            <label class="field">Archive Current As<input id="finCloseLbl" type="text" placeholder="Keep current label" maxlength="80"></label>
+            <label class="field">New Cycle Label<input id="finNextLbl" type="text" placeholder="e.g. Subathon Day 2" maxlength="80"></label>
+            <label class="field">Notes<input id="finNextNotes" type="text" placeholder="Optional notes" maxlength="240"></label>
+            <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;"><input id="finAlsoAdded" type="checkbox"> Also reset Timer "Total Added" to 0h 0m</label>
+            <button id="finStartCycleBtn" type="button" class="btn btn-primary btn-pill btn-full">Start New Session (0)</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Finance Fee Rules -->
+      <div id="finPanelFees" class="grid-finance-ov" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="fin.feeRulesTitle">Platform Cut &amp; Processing Fees</h2><span class="card-caption">Timer always uses 100% Gross</span></div>
+          <div class="fee-matrix-row" style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--muted);"><span>Platform</span><span>Platform %</span><span>Pay %</span><span>Fixed</span></div>
+          <div id="finFeeMatrix" style="max-height:330px;overflow-y:auto;"></div>
+          <hr class="hairline">
+          <div class="btn-row" style="justify-content:space-between;width:100%;">
+            <button id="finRecalcBtn" type="button" class="btn btn-pill btn-sm">Recalculate Active Session</button>
+            <button id="finSaveFeesBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="fin.taxSimTitle">Tax Reserve &amp; Live Formula</h2></div>
+          <div class="stack-sm">
+            <div class="row-2">
+              <label class="field">Tax Reserve (%)<input id="finTaxPct" type="number" min="0" max="100" step="0.5" value="0"></label>
+              <label class="field">Tax Basis<select id="finTaxBasis"><option value="after_fees">Post-Fee Net</option><option value="gross">Gross</option></select></label>
+            </div>
+            <hr class="hairline">
+            <p class="section-kicker">Formula Simulator</p>
+            <div class="row-2">
+              <label class="field">Platform<select id="finSimChan"></select></label>
+              <label class="field">Sample Gross<input id="finSimAmt" type="number" min="1" step="any" value="100"></label>
+            </div>
+            <div id="finFormulaBox" class="mono-box"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 5: RULES ═══════════════ -->
+    <section class="view" id="view-rules" role="tabpanel" aria-labelledby="nav-rules">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="rules.title">Rules</h1>
+          <p class="view-sub" data-i18n="rules.sub">Configure donation-to-time tiers and toggle which platform events extend the countdown.</p>
+        </div>
+        <div class="segmented" role="tablist" aria-label="Rules tabs">
+          <button type="button" class="seg-btn active" data-rules-tab="tiers" data-i18n="rules.tabTiers">Donation Tiers</button>
+          <button type="button" class="seg-btn" data-rules-tab="triggers" data-i18n="rules.tabTriggers">Timer Triggers</button>
+        </div>
+      </div>
+
+      <div id="rulesPanelTiers" class="grid-2">
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Active Tiers</h2><span id="rulesCurBadge" class="pill">USD</span></div>
+          <label class="field" style="margin-bottom:10px;">Matching Mode
+            <select id="rulesMode"><option value="threshold">Threshold (highest matched tier)</option><option value="greedy">Greedy (stack multiples)</option></select>
+          </label>
+          <div id="rulesTierList" class="stack-sm" style="margin-bottom:12px;"></div>
+          <button id="saveRulesBtn" type="button" class="btn btn-primary btn-pill" data-i18n="rules.save">Save Rules</button>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Add / Update Tier</h2></div>
+          <div class="stack-sm">
+            <label class="field"><span id="newTierMinLbl">Minimum Gift</span><input id="newTierMin" type="number" min="0.01" step="any" value="25"></label>
+            <div class="row-3">
+              <label class="field">Hours<input id="newTierH" type="number" min="0" value="1"></label>
+              <label class="field">Minutes<input id="newTierM" type="number" min="0" value="0"></label>
+              <label class="field">Seconds<input id="newTierS" type="number" min="0" value="0"></label>
+            </div>
+            <button id="addTierBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Tier</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="rulesPanelTriggers" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Timer Triggers</h2><button id="saveTriggersBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="rules.saveTriggers">Save Timer Triggers</button></div>
+          <div class="row-2">
+            <div class="stack-sm">
+              <label class="toggle-row"><span>Cash Tips &amp; Regional Gateways</span><input id="trCashTips" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Super Chat &amp; Stickers</span><input id="trYtSc" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Membership (Individual)</span><input id="trYtMem" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Gift Membership</span><input id="trYtGift" type="checkbox" checked></label>
+              <label class="toggle-row"><span>YouTube Jewels / Live Gifts</span><input id="trYtJewels" type="checkbox" checked></label>
+            </div>
+            <div class="stack-sm">
+              <label class="toggle-row"><span>Twitch Sub (Individual)</span><input id="trTwSub" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Prime Sub</span><input id="trTwPrime" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Gift Sub</span><input id="trTwGift" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Twitch Bits / Cheers</span><input id="trTwBits" type="checkbox" checked></label>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 6: OBS OVERLAY ═══════════════ -->
+    <section class="view" id="view-overlay" role="tabpanel" aria-labelledby="nav-overlay">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="obs.title">OBS Overlay</h1>
+          <p class="view-sub" data-i18n="obs.sub">Customize your live broadcast overlay and copy the private Browser Source URL.</p>
+        </div>
+        <button id="ovSaveBtn" type="button" class="btn btn-primary btn-pill" data-i18n="obs.save">Save Overlay Style</button>
+      </div>
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="obs.preview">Live Preview</h2><span id="obsConnBadge" class="pill">0 sources</span></div>
+          <div id="obsStage" class="obs-stage" data-bg="dark">
+            <div id="obsPreviewCard" class="obs-card-preview">
+              <div id="obsPrevRush" class="pill pill-warn" style="margin-bottom:4px;" hidden>BILLING RUSH LV.1</div>
+              <div id="obsPrevLbl" style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:#2997ff;">STREAM TIMER</div>
+              <div id="obsPrevClock" style="font-family:var(--font-mono);font-size:34px;font-weight:700;">00:00:00</div>
+              <div id="obsPrevTot" style="font-size:11px;opacity:0.75;margin-top:4px;">TOTAL ADDED · 0h 0m</div>
+            </div>
+          </div>
+          <p class="section-kicker" data-i18n="obs.urlTitle">Browser Source URL</p>
+          <div id="obsUrlBox" class="mono-box" style="margin-bottom:8px;"></div>
+          <div class="btn-row">
+            <button id="obsCopyBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.copy">Copy</button>
+            <button id="obsRevealBtn" type="button" class="btn btn-pill btn-sm">Show Full URL</button>
+            <button id="obsRushBtn" type="button" class="btn btn-pill btn-sm">Toggle Rush</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Appearance &amp; Layout</h2></div>
+          <div class="stack-sm">
+            <div class="row-2">
+              <label class="field">Timer Label<input id="ovTimerName" type="text" value="Stream Timer"></label>
+              <label class="field">Total Label<input id="ovTotalName" type="text" value="Total Added"></label>
+            </div>
+            <div class="row-2">
+              <label class="field">Background<select id="ovBg"><option value="dark">Dark</option><option value="transparent">Transparent</option><option value="chroma">Chroma Green</option></select></label>
+              <label class="field">Position<select id="ovPos"><option value="bottom-left">Bottom Left</option><option value="bottom-right">Bottom Right</option><option value="top-left">Top Left</option><option value="top-right">Top Right</option><option value="center">Center</option></select></label>
+            </div>
+            <div class="row-2">
+              <label class="field">Font Size (px)<input id="ovSize" type="number" min="18" max="80" value="38"></label>
+              <label class="field">Card Opacity (%)<input id="ovOpacity" type="number" min="10" max="100" value="92"></label>
+            </div>
+            <div class="row-2">
+              <label class="toggle-row"><span>Show Total Added</span><input id="ovShowTotal" type="checkbox" checked></label>
+              <label class="toggle-row"><span>Credit Popup (+Time)</span><input id="ovPopup" type="checkbox" checked></label>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 7: INTEGRATIONS (Sockets + Global Webhooks + 1-Click Tunnel) ═══════════════ -->
+    <section class="view" id="view-integrations" role="tabpanel" aria-labelledby="nav-integrations">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="integ.title">Integrations</h1>
+          <p class="view-sub" data-i18n="integ.sub">Manage live local sockets, regional webhooks, and 1-click Local Webhook Tunnel.</p>
+        </div>
+        <div class="segmented" role="tablist" aria-label="Integrations tabs">
+          <button type="button" class="seg-btn active" data-integ-tab="sockets" data-i18n="integ.tabSockets">Live Sockets (Local)</button>
+          <button type="button" class="seg-btn" data-integ-tab="webhooks" data-i18n="integ.tabWebhooks">Webhooks &amp; Tunnel</button>
+          <button type="button" class="seg-btn" data-integ-tab="test" data-i18n="integ.tabTest">Event Simulator</button>
+        </div>
+      </div>
+
+      <div id="integPanelSockets" class="stack-sm">
+        <div id="socketCardsGrid" class="grid-2"></div>
+      </div>
+
+      <div id="integPanelWebhooks" class="stack-sm" hidden>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title" data-i18n="integ.tunnelTitle">1-Click Local Webhook Tunnel</h2>
+            <span id="tunnelBadge" class="pill">Stopped</span>
+          </div>
+          <p class="helper-text" style="margin-bottom:10px;" data-i18n="integ.tunnelSub">Expose a secure temporary HTTPS URL for webhook platforms (Saweria, Tako, Ko-fi, Chzzk, LivePix) without a VPS or port forwarding.</p>
+          <div class="row-2" style="align-items:end;margin-bottom:10px;">
+            <label class="field">Active Public Base URL (or paste custom HTTPS domain)
+              <input id="tunnelUrlInput" type="text" placeholder="https://your-domain.com or click Start Cloudflare Tunnel">
+            </label>
+            <div class="btn-row">
+              <button id="tunnelStartBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="integ.tunnelStart">Start Cloudflare Tunnel</button>
+              <button id="tunnelCustomBtn" type="button" class="btn btn-pill btn-sm">Use Custom URL</button>
+              <button id="tunnelStopBtn" type="button" class="btn btn-pill btn-sm" data-i18n="integ.tunnelStop">Stop Tunnel</button>
+            </div>
+          </div>
+        </section>
+        <div id="webhookCardsGrid" class="grid-2"></div>
+      </div>
+
+      <div id="integPanelTest" class="grid-2" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Simulate Streamlabs Event</h2></div>
+          <div class="stack-sm">
+            <label class="field">Event Type
+              <select id="simSlType">
+                <option value="superchat">YouTube Super Chat</option>
+                <option value="donation">Streamlabs Tip</option>
+                <option value="yt_member">YouTube Membership</option>
+                <option value="yt_gift_member">YouTube Gift Membership</option>
+                <option value="yt_jewels">YouTube Jewels</option>
+                <option value="twitch_sub_individual">Twitch Sub</option>
+                <option value="twitch_prime">Twitch Prime</option>
+                <option value="twitch_gift_sub">Twitch Gift Sub</option>
+                <option value="twitch_bits">Twitch Bits</option>
+              </select>
+            </label>
+            <label class="field">Supporter<input id="simSlName" type="text" value="Kenji"></label>
+            <div class="row-2">
+              <label class="field">Amount / Qty<input id="simSlAmt" type="number" step="any" value="1000"></label>
+              <label class="field">Currency<select id="simSlCur"></select></label>
+            </div>
+            <button id="simSlBtn" type="button" class="btn btn-primary btn-pill btn-full">Send Test Streamlabs Event</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Simulate Regional Webhook</h2></div>
+          <div class="stack-sm">
+            <label class="field">Platform<select id="simWhProv"></select></label>
+            <label class="field">Supporter<input id="simWhName" type="text" value="Webhook Tester"></label>
+            <div class="row-2">
+              <label class="field">Amount<input id="simWhAmt" type="number" step="any" value="15"></label>
+              <label class="field">Currency<select id="simWhCur"></select></label>
+            </div>
+            <button id="simWhBtn" type="button" class="btn btn-primary btn-pill btn-full">Send Signed Test Webhook</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══════════════ VIEW 8: SETTINGS (YouTube / Twitch / Currency FX / Desktop & Backup) ═══════════════ -->
+    <section class="view" id="view-settings" role="tabpanel" aria-labelledby="nav-settings">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title" data-i18n="set.title">Settings</h1>
+          <p class="view-sub" data-i18n="set.sub">Channel pricing catalog, 166 live exchange rates, and native desktop preferences.</p>
+        </div>
+        <div class="segmented" role="tablist" aria-label="Settings tabs">
+          <button type="button" class="seg-btn active" data-set-tab="youtube" data-i18n="set.tabYoutube">YouTube Catalog</button>
+          <button type="button" class="seg-btn" data-set-tab="twitch" data-i18n="set.tabTwitch">Twitch Catalog</button>
+          <button type="button" class="seg-btn" data-set-tab="currency" data-i18n="set.tabCurrency">Currency &amp; FX</button>
+          <button type="button" class="seg-btn" data-set-tab="desktop" data-i18n="set.tabDesktop">Desktop &amp; Backup</button>
+        </div>
+      </div>
+
+      <div id="setPanelYoutube" class="grid-2">
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">YouTube Membership Levels</h2><button id="saveYtBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button></div>
+          <div id="ytLevelsList" class="stack-sm"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Add Custom Level</h2></div>
+          <div class="stack-sm">
+            <div class="row-2">
+              <label class="field">Level Name<input id="ytNewName" type="text" placeholder="e.g. Gold Member"></label>
+              <label class="field"><span id="ytNewPriceLbl">Price</span><input id="ytNewPrice" type="number" min="0" step="any" placeholder="10"></label>
+            </div>
+            <div class="row-2">
+              <label class="field">Credit Mode<select id="ytNewMode"><option value="fixed_time">Fixed Minutes</option><option value="follow_tiers">Follow Tiers</option></select></label>
+              <label class="field">Minutes<input id="ytNewMin" type="number" min="0" value="15"></label>
+            </div>
+            <button id="ytAddLvlBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Level</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="setPanelTwitch" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title">Twitch Subscription Tiers</h2><button id="saveTwBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button></div>
+          <div id="twTierMatrix" class="stack-sm"></div>
+        </section>
+      </div>
+
+      <div id="setPanelCurrency" class="grid-2" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="set.fxTitle">Exchange Rate Engine</h2><span id="fxStatusBadge" class="pill pill-ok">Auto Live</span></div>
+          <div class="stack-sm">
+            <label class="toggle-row"><span data-i18n="set.fxAuto">Auto-Update Live Currency Rates</span><input id="fxAutoChk" type="checkbox" checked></label>
+            <label class="field">Refresh Interval
+              <select id="fxIntSel"><option value="1">Every 1 hour</option><option value="6" selected>Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Every 24 hours</option></select>
+            </label>
+            <div id="fxInfoBox" class="mono-box"></div>
+            <div class="btn-row">
+              <button id="fxNowBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="set.fxUpdateNow">Update Rates Now</button>
+              <button id="fxSaveBtn" type="button" class="btn btn-pill btn-sm" data-i18n="common.save">Save</button>
+            </div>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title" data-i18n="set.fxRatesTitle">Live Cross-Rates</h2>
+            <input id="fxSearchIn" type="search" placeholder="Filter (JPY, IDR…)" aria-label="Filter currencies" style="height:31px;width:155px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);">
+          </div>
+          <div id="fxRatesList" class="table-scroll" style="max-height:270px;"></div>
+        </section>
+      </div>
+
+      <div id="setPanelDesktop" class="grid-2" hidden>
+        <section class="card">
+          <div class="card-head"><h2 class="card-title" data-i18n="set.hotkeysTitle">Global Keyboard Shortcuts</h2></div>
+          <div class="stack-sm">
+            <label class="field">Language<select id="setLangSelect"></select></label>
+            <label class="field">Pause / Resume Hotkey<input id="hkToggle" type="text" value="CommandOrControl+Shift+Space"></label>
+            <label class="field">Add 1 Min Hotkey<input id="hkAdd1" type="text" value="CommandOrControl+Shift+Up"></label>
+            <label class="field">Add 5 Min Hotkey<input id="hkAdd5" type="text" value="CommandOrControl+Shift+Right"></label>
+            <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);padding:4px 0;">
+              <input id="setCloseToTrayChk" type="checkbox">
+              Keep running in Windows System Tray when clicking Close (×)
+            </label>
+            <button id="saveDesktopBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button>
+          </div>
+        </section>
+        <div class="stack">
+          <section class="card">
+            <div class="card-head">
+              <h2 class="card-title">Software Update</h2>
+              <span id="updVersionPill" class="pill">v1.0.0</span>
+            </div>
+            <div class="stack-sm">
+              <div class="btn-row" style="justify-content:space-between;">
+                <span id="updStatusText" class="helper-text">Stream Timer keeps your local profiles &amp; SQLite databases 100% safe across updates.</span>
+                <span id="updStateBadge" class="pill">Up to Date</span>
+              </div>
+              <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);padding-top:2px;">
+                <input id="updAutoCheckChk" type="checkbox" checked>
+                Automatically check for updates
+              </label>
+              <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);">
+                <input id="updAutoInstallChk" type="checkbox">
+                Automatically download updates when idle (never interrupts live stream / OBS)
+              </label>
+              <div id="updNotesBox" class="mono-box" hidden style="white-space:pre-wrap;font-family:var(--font-body);font-size:12px;"></div>
+              <div class="btn-row" style="padding-top:2px;">
+                <button id="updCheckBtn" type="button" class="btn btn-primary btn-pill btn-sm">Check for Updates</button>
+                <button id="updInstallBtn" type="button" class="btn btn-primary btn-pill btn-sm" hidden>Download &amp; Install Update</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2 class="card-title" data-i18n="set.backupTitle">Profile Backup &amp; Restore (.stbackup)</h2></div>
+            <div class="stack-sm">
+              <p class="helper-text">Export a single portable file containing this profile's SQLite database, timer rules, donation history, and archived financial sessions.</p>
+              <div class="btn-row">
+                <button id="setExportBakBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="prof.backup">Export Backup (.stbackup)</button>
+                <button id="setImportBakBtn" type="button" class="btn btn-pill btn-sm" data-i18n="prof.import">Import Backup…</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ═══════════════ APPLE MODAL DIALOGS ═══════════════ -->
+
+<dialog id="finDetailDialog" class="apple-dialog" aria-labelledby="finDetDlgTitle">
+  <form method="dialog">
+    <h2 id="finDetDlgTitle">Transaction Breakdown</h2>
+    <div id="finDetContent" class="stack-sm"></div>
+    <menu>
+      <button id="finDetCopyBtn" type="button" class="btn btn-pill btn-sm">Copy Event ID</button>
+      <button value="close" class="btn btn-primary btn-pill btn-sm" data-i18n="common.done">Done</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="finExportDialog" class="apple-dialog" aria-labelledby="finExpDlgTitle">
+  <form method="dialog">
+    <h2 id="finExpDlgTitle" data-i18n="fin.exportReport">Export Report</h2>
+    <p id="finExpDesc" class="helper-text" style="margin-bottom:12px;"></p>
+    <div class="stack-sm">
+      <button type="button" class="export-card-btn" data-exp-fmt="xlsx"><div><strong>Excel Workbook (.xlsx)</strong><span>3 formatted sheets: Summary, Platforms &amp; Ledger</span></div><span class="pill">.xlsx</span></button>
+      <button type="button" class="export-card-btn" data-exp-fmt="csv"><div><strong>CSV Spreadsheet (.csv)</strong><span>Excel &amp; Google Sheets UTF-8 BOM</span></div><span class="pill">.csv</span></button>
+      <button type="button" class="export-card-btn" data-exp-fmt="html"><div><strong>Printable Financial Statement</strong><span>Apple-styled report ready for Print / Save PDF</span></div><span class="pill">PDF</span></button>
+      <button type="button" class="export-card-btn" data-exp-fmt="json"><div><strong>JSON Audit Bundle (.json)</strong><span>Complete structured archive</span></div><span class="pill">.json</span></button>
+      <button type="button" class="export-card-btn" data-exp-fmt="md"><div><strong>Markdown Report (.md)</strong><span>Notion, Discord &amp; GitHub ready</span></div><span class="pill">.md</span></button>
+    </div>
+    <menu><button value="cancel" class="btn btn-pill btn-sm" data-i18n="common.close">Close</button></menu>
+  </form>
+</dialog>
+
+<dialog id="editProfileDialog" class="apple-dialog" aria-labelledby="editProfTitle">
+  <form method="dialog">
+    <h2 id="editProfTitle">Edit Profile</h2>
+    <div class="stack-sm">
+      <label class="field">Profile Name<input id="edProfName" type="text" maxlength="60"></label>
+      <label class="field">Language<select id="edProfLang"></select></label>
+      <label class="field">Base Currency<select id="edProfCur"></select></label>
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;"><input id="edProfResetPresets" type="checkbox"> Reset tier &amp; fee presets to new currency defaults</label>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>
+      <button id="edProfSaveBtn" value="confirm" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="deleteProfileDialog" class="apple-dialog" aria-labelledby="delProfTitle">
+  <form method="dialog">
+    <h2 id="delProfTitle">Delete this profile?</h2>
+    <p id="delProfDesc" class="helper-text" style="margin-bottom:12px;"></p>
+    <div class="stack-sm">
+      <button id="delProfBackupFirstBtn" type="button" class="btn btn-pill btn-sm btn-full">Export Backup (.stbackup) First</button>
+      <label class="field">Type profile name to confirm<input id="delProfConfirmInput" type="text" autocomplete="off"></label>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>
+      <button id="delProfConfirmBtn" value="confirm" class="btn btn-danger btn-pill btn-sm" disabled data-i18n="common.delete">Delete</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="resetTimerDialog" class="apple-dialog" aria-labelledby="rstDlgTitle">
+  <form method="dialog">
+    <h2 id="rstDlgTitle">Reset timer to 00:00:00?</h2>
+    <p class="helper-text">Sets remaining time to zero and pauses the countdown.</p>
+    <menu>
+      <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>
+      <button id="rstConfirmBtn" value="confirm" class="btn btn-danger btn-pill btn-sm" data-i18n="timer.reset">Reset</button>
+    </menu>
+  </form>
+</dialog>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

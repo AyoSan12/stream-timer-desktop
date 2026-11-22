@@ -1,0 +1,17 @@
+{
+  "name": "stream-timer-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Apple-grade fully local Native Windows Subathon Timer, Multi-Platform Donation Hub & Revenue Accounting Suite",
+  "scripts": {
+    "engine": "node engine/main.js",
+    "test:model": "node tests/model.test.mjs",
+    "test:engine": "node tests/engine.test.mjs",
+    "test:browser": "node tests/browser.test.mjs",
+    "test": "node tests/run-all.mjs",
+    "release": "node scripts/publish-release.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-win-start-dragging"
+description = "Enables the win_start_dragging command without any pre-configured scope."
+commands.allow = ["win_start_dragging"]
+
+[[permission]]
+identifier = "deny-win-start-dragging"
+description = "Denies the win_start_dragging command without any pre-configured scope."
+commands.deny = ["win_start_dragging"]
