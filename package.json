@@ -1,9 +1,9 @@
 {
   "name": "stream-timer-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "Apple-grade fully local Native Windows Subathon Timer, Multi-Platform Donation Hub & Revenue Accounting Suite",
+  "description": "100% local Native Windows Subathon Timer, Multi-Platform Donation Hub & Revenue Accounting Suite",
   "scripts": {
     "engine": "node engine/main.js",
     "test:model": "node tests/model.test.mjs",

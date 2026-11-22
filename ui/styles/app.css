@@ -1128,6 +1128,7 @@ body.is-desktop.in-workspace .topbar-inner {
   transform: translateX(17px);
 }
 
+.stack { display: flex; flex-direction: column; gap: 16px; }
 .stack-sm { display: flex; flex-direction: column; gap: 10px; }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }

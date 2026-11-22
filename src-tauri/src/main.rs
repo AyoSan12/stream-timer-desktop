@@ -503,7 +503,11 @@ fn ensure_embedded_runtime() -> Result<(PathBuf, PathBuf), String> {
 
     let pkg_path = runtime_root.join("package.json");
     if !pkg_path.is_file() {
-        std::fs::write(&pkg_path, r#"{"name":"stream-timer-runtime","private":true,"type":"module"}"#)
+        let pkg_json = format!(
+            r#"{{"name":"stream-timer-runtime","version":"{}","private":true,"type":"module"}}"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        std::fs::write(&pkg_path, pkg_json)
             .map_err(|e| format!("Failed writing runtime package.json: {}", e))?;
     }
 
