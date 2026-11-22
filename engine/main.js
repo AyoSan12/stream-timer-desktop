@@ -20,6 +20,7 @@ import {
   readFinanceConfig, updateFinanceConfig, readFinanceSessions,
   startNewFinanceSession, updateFinanceSessionMeta,
   recalculateFinanceSnapshots, readFinanceReport,
+  readUnmatchedYoutubeLevels, resolveUnmatchedYoutubeLevel,
 } from './mutation.js';
 import { validateCommand, resolveTransactionCredit, buildDefaultRulesForCurrency } from './domain.js';
 import {
@@ -154,7 +155,16 @@ function applyNormalizedDonation({ eventId, provider, grossAmount, creditMs, pay
   if (result.status === 200) {
     if (result.changed) broadcast(result.body);
     broadcastOverlayTotals();
-    broadcastEvent('activity', { eventId, provider, grossAmount, creditMs, gifterName: payload?.gifterName || 'Anonymous' });
+    broadcastEvent('activity', {
+      eventId,
+      provider,
+      grossAmount,
+      creditMs,
+      gifterName: payload?.gifterName || 'Anonymous',
+      matchStatus: payload?.matchStatus || null,
+      rawLevelName: payload?.rawLevelName || null,
+      fallbackLevelName: payload?.fallbackLevelName || null,
+    });
   }
   return result;
 }
@@ -585,6 +595,8 @@ const server = http.createServer(async (req, res) => {
       const snap = readSnapshot(ctx.db);
       const ov = readOverlayConfig(ctx.db);
       const hist = readDonationHistory(ctx.db, { limit: 5 });
+      const rules = readDonationRules(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd);
+      const unmatchedYoutubeLevels = readUnmatchedYoutubeLevels(ctx.db, rules);
       const finCur = readFinanceReport(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd, { session: 'current', limit: 5 });
       const prevArchived = finCur.sessions.find((s) => !s.isActive) || null;
       return sendJson(res, 200, {
@@ -605,6 +617,7 @@ const server = http.createServer(async (req, res) => {
         activeIncome: finCur.summary,
         activeSession: finCur.activeSession,
         lastArchivedSession: prevArchived,
+        unmatchedYoutubeLevels,
       });
     }
 
@@ -639,9 +652,11 @@ const server = http.createServer(async (req, res) => {
     // 10. Donations & Manual Entry & Reset Added & Soft-Delete
     if (req.method === 'GET' && p === '/api/donations') {
       const limit = Number(url.searchParams.get('limit') || 150);
+      const rules = readDonationRules(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd);
       return sendJson(res, 200, {
         baseCurrency: ctx.profile.baseCurrency,
         ...readDonationHistory(ctx.db, { limit }),
+        unmatchedYoutubeLevels: readUnmatchedYoutubeLevels(ctx.db, rules),
       });
     }
     if (req.method === 'POST' && p === '/api/donations/manual') {
@@ -729,12 +744,22 @@ const server = http.createServer(async (req, res) => {
 
     // 11. Rules & Channel Pricing Catalog
     if (req.method === 'GET' && p === '/api/rules') {
-      return sendJson(res, 200, readDonationRules(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd));
+      const rules = readDonationRules(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd);
+      return sendJson(res, 200, { ...rules, unmatchedYoutubeLevels: readUnmatchedYoutubeLevels(ctx.db, rules) });
     }
     if (req.method === 'PUT' && p === '/api/rules') {
       const body = JSON.parse(await readBody(req) || '{}');
       const saved = updateDonationRules(ctx.db, body, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd);
-      return sendJson(res, 200, saved);
+      return sendJson(res, 200, { ...saved, unmatchedYoutubeLevels: readUnmatchedYoutubeLevels(ctx.db, saved) });
+    }
+    if (req.method === 'POST' && p === '/api/rules/youtube-resolve') {
+      const body = JSON.parse(await readBody(req) || '{}');
+      const result = resolveUnmatchedYoutubeLevel(ctx.db, body, ctx.profile.baseCurrency, ctx.fx);
+      if (!result.ok) return sendJson(res, 400, result);
+      if (result.changed && result.snapshot) broadcast(result.snapshot);
+      broadcastOverlayTotals();
+      broadcastEvent('activity', { kind: 'yt_level_resolved', rawLevelName: body.rawLevelName || '' });
+      return sendJson(res, 200, result);
     }
 
     // 12. OBS Overlay Config
@@ -810,7 +835,7 @@ const server = http.createServer(async (req, res) => {
         amount: body.amount,
         currency: body.currency || ctx.profile.baseCurrency,
         tierKey: body.tierKey,
-        levelName: body.levelName,
+        levelName: typeof body.levelName === 'string' ? body.levelName : undefined,
         opId,
       });
       const applied = applyStreamlabsEnvelope(envelope, streamlabsClient.getStatus().filters);

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import {
   applyCommand, snapshotOf, effectiveRemainingMs,
   buildDefaultRulesForCurrency, resolveTransactionCredit,
+  matchYoutubeLevel, normalizeYoutubeLevelKey,
 } from '../engine/domain.js';
 import { convertCrossCurrency, BASELINE_RATES_PER_USD } from '../engine/fx.js';
 import {
@@ -259,6 +260,65 @@ cases.push({
     assert(exportFinanceMarkdown(rep).includes('Global Stream #1'), 'Markdown ready');
     assert(exportFinanceHtmlReport(rep).includes('window.print()'), 'HTML print statement ready');
     return { netUsd: rep.summary.netAmount, xlsxBytes: xlsx.length };
+  },
+});
+
+cases.push({
+  id: 'M6-youtube-membership-4-layer-matching-simulations',
+  fn() {
+    const levels = [
+      { id: 'yt-1', name: 'Supporter', price: 10000, creditMode: 'fixed_time', fixedMs: 300_000, isDefault: true, aliases: [] },
+      { id: 'yt-2', name: 'Sultan VIP', price: 50000, creditMode: 'fixed_time', fixedMs: 900_000, isDefault: false, aliases: ['Anak Sultan'] },
+      { id: 'yt-3', name: 'Tier 1', price: 10000, creditMode: 'fixed_time', fixedMs: 300_000, isDefault: false, aliases: [] },
+      { id: 'yt-4', name: 'チャンピオン', price: 150000, creditMode: 'fixed_time', fixedMs: 3_600_000, isDefault: false, aliases: [] },
+      { id: 'yt-5', name: 'Level 10', price: 20000, creditMode: 'fixed_time', fixedMs: 600_000, isDefault: false, aliases: [] },
+    ];
+
+    // 1. Exact case-insensitive
+    const m1 = matchYoutubeLevel('  supporter ', levels);
+    eq(m1.matchStatus, 'exact', 'exact match ignores case & outer spaces');
+    eq(m1.level.id, 'yt-1', 'matched yt-1');
+
+    // 2. Emoji & punctuation normalization (EN & Unicode JP)
+    const m2 = matchYoutubeLevel('👑  Sultan VIP!! ', levels);
+    eq(m2.matchStatus, 'normalized', 'emoji + punctuation stripped for normalized match');
+    eq(m2.level.id, 'yt-2', 'matched Sultan VIP');
+
+    const mJp = matchYoutubeLevel('⭐ チャンピオン ⭐', levels);
+    eq(mJp.matchStatus, 'normalized', 'Unicode Japanese level matched after stripping star emojis');
+    eq(mJp.level.id, 'yt-4', 'matched チャンピオン');
+
+    // 3. Saved alias
+    const mAlias = matchYoutubeLevel('🔥 Anak Sultan', levels);
+    eq(mAlias.matchStatus, 'alias', 'normalized alias match succeeds');
+    eq(mAlias.level.id, 'yt-2', 'alias maps to Sultan VIP');
+
+    // 4. Safe 1-char typo (length >= 5, same digit signature, unique)
+    const mTypo = matchYoutubeLevel('Suporter', levels);
+    eq(mTypo.matchStatus, 'fuzzy_safe', 'safe 1-char typo Suporter -> Supporter');
+    eq(mTypo.level.id, 'yt-1', 'matched Supporter');
+
+    // 5. CRITICAL anti-false-positive numeric guard ("Tier 2" must NOT match "Tier 1", "Level 20" must NOT match "Level 10")
+    const mNum1 = matchYoutubeLevel('Tier 2', levels);
+    eq(mNum1.matchStatus, 'unmatched_fallback', 'Tier 2 NEVER false-matches Tier 1');
+    eq(mNum1.level.id, 'yt-1', 'falls back safely to Default');
+    eq(mNum1.rawLevelName, 'Tier 2', 'preserves verbatim rawLevelName');
+
+    const mNum2 = matchYoutubeLevel('Level 20', levels);
+    eq(mNum2.matchStatus, 'unmatched_fallback', 'Level 20 NEVER false-matches Level 10');
+
+    // 6. Completely unknown tier -> zero-drop fallback + unmatched_fallback flag
+    const mUnk = matchYoutubeLevel('Keluarga Cemara', levels);
+    eq(mUnk.matchStatus, 'unmatched_fallback', 'unknown tier triggers unmatched_fallback');
+    eq(mUnk.level.id, 'yt-1', 'zero-drop fallback to Default');
+    eq(mUnk.fallbackLevelName, 'Supporter', 'records fallbackLevelName');
+
+    // 7. Empty string -> empty_default (no noisy alert)
+    const mEmpty = matchYoutubeLevel('', levels);
+    eq(mEmpty.matchStatus, 'empty_default', 'empty payload uses empty_default quietly');
+    eq(normalizeYoutubeLevelKey('  👑 VIP!!  '), 'vip', 'normalizeYoutubeLevelKey strips emojis cleanly');
+
+    return { testedStages: 7 };
   },
 });
 

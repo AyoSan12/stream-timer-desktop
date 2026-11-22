@@ -158,7 +158,18 @@ export function normalizeStreamlabsEvent(
         grossAmount: res.grossAmount,
         currency: baseCur,
         creditMs: res.creditMs,
-        payload: { gifterName, message: message || `Gifted ${count}× ${res.resolvedLabel}`, units: count, tierOrLevel: res.resolvedLabel, txType: 'yt_gift_member', streamlabsType: type },
+        payload: {
+          gifterName,
+          message: message || `Gifted ${count}× ${res.resolvedLabel}`,
+          units: count,
+          tierOrLevel: res.resolvedLabel,
+          rawLevelName: res.rawLevelName,
+          matchStatus: res.matchStatus,
+          matchedLevelId: res.matchedLevelId,
+          fallbackLevelName: res.fallbackLevelName,
+          txType: 'yt_gift_member',
+          streamlabsType: type,
+        },
       });
       continue;
     }
@@ -174,7 +185,18 @@ export function normalizeStreamlabsEvent(
         grossAmount: res.grossAmount,
         currency: baseCur,
         creditMs: res.creditMs,
-        payload: { gifterName, message: message || `YouTube Member (${res.resolvedLabel})`, units: 1, tierOrLevel: res.resolvedLabel, txType: 'yt_member', streamlabsType: type },
+        payload: {
+          gifterName,
+          message: message || `YouTube Member (${res.resolvedLabel})`,
+          units: 1,
+          tierOrLevel: res.resolvedLabel,
+          rawLevelName: res.rawLevelName,
+          matchStatus: res.matchStatus,
+          matchedLevelId: res.matchedLevelId,
+          fallbackLevelName: res.fallbackLevelName,
+          txType: 'yt_member',
+          streamlabsType: type,
+        },
       });
       continue;
     }
@@ -250,9 +272,9 @@ export function buildSyntheticStreamlabsEvent({ eventType, gifterName, amount, c
     case 'superchat':
       return { _allowTest: true, type: 'superchat', for: 'youtube_account', message: [{ id, name, amount: Number.isFinite(num) && num > 0 ? num : 5, currency: currency || 'USD', comment: 'Test YouTube Super Chat' }] };
     case 'yt_member':
-      return { _allowTest: true, type: 'subscription', for: 'youtube_account', message: [{ id, name, months: 1, membershipLevelName: levelName || 'Supporter', message: 'Test YouTube Membership' }] };
+      return { _allowTest: true, type: 'subscription', for: 'youtube_account', message: [{ id, name, months: 1, membershipLevelName: levelName !== undefined && levelName !== null ? String(levelName) : 'Supporter', message: 'Test YouTube Membership' }] };
     case 'yt_gift_member':
-      return { _allowTest: true, type: 'membershipGift', for: 'youtube_account', message: [{ id, name, giftMembershipsCount: Math.max(1, Math.trunc(num || 1)), membershipLevelName: levelName || 'Supporter', message: 'Test YouTube Gift Membership' }] };
+      return { _allowTest: true, type: 'membershipGift', for: 'youtube_account', message: [{ id, name, giftMembershipsCount: Math.max(1, Math.trunc(num || 1)), membershipLevelName: levelName !== undefined && levelName !== null ? String(levelName) : 'Supporter', message: 'Test YouTube Gift Membership' }] };
     case 'yt_jewels':
       return { _allowTest: true, type: 'JewelsGifted', for: 'youtube_account', message: [{ id, name, jewels: Math.max(1, Math.trunc(num || 100)), message: 'Test YouTube Jewels' }] };
     case 'twitch_prime':

@@ -348,6 +348,53 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'UI4-youtube-unmatched-level-discovery-and-1click-fix',
+  async fn() {
+    const ctx = await browser.newContext({ viewport: { width: 1360, height: 840 } });
+    const page = await ctx.newPage();
+    await page.goto(`${eng.base}/?desktop=1&theme=dark`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#appRoot:not([hidden])', { timeout: 6000 });
+    await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
+
+    // Trigger unmatched YouTube Membership "Anak Sultan" via Integrations -> Test Simulator
+    await page.locator('#nav-integrations').click();
+    await page.locator('[data-integ-tab="test"]').click();
+    await page.locator('#simSlType').selectOption('yt_gift_member');
+    await page.locator('#simSlAmt').fill('5');
+    await page.locator('#simSlLevel').fill('Anak Sultan');
+    await page.locator('#simSlBtn').click();
+    await page.waitForTimeout(450);
+
+    // Check Home alert banner appears cleanly
+    await page.locator('#nav-home').click();
+    await page.waitForSelector('#homeYtAlert:not([hidden])', { timeout: 4000 });
+    const homeBannerTxt = await page.locator('#homeYtAlert').textContent();
+    assert(homeBannerTxt.includes('Anak Sultan'), 'Home banner displays auto-detected "Anak Sultan"');
+
+    // Click 1-click "Map in 1 Click ->" to jump directly to Settings -> YouTube Catalog
+    await page.locator('#homeYtAlert [data-open-yt-catalog]').click();
+    await page.waitForSelector('#ytDiscoveredCard:not([hidden])', { timeout: 4000 });
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(evDir, '16-yt-autodiscover-dark.png') });
+
+    // Select Champion (last option) and click "Link as Alias"
+    const sel = page.locator('[data-yt-disc-sel="Anak Sultan"]');
+    const lastVal = await sel.locator('option').last().getAttribute('value');
+    await sel.selectOption(lastVal);
+    await page.locator('[data-yt-disc-link="Anak Sultan"]').click();
+    await page.waitForTimeout(500);
+
+    assert(await page.locator('#ytDiscoveredCard').isHidden(), 'Discovery card hides once resolved');
+    assert(await page.locator('#homeYtAlert').isHidden(), 'Home banner clears once resolved');
+    const ytListTxt = await page.locator('#ytLevelsList').textContent();
+    assert(ytListTxt.includes('alias: Anak Sultan'), 'Alias chip appears on target YouTube tier card');
+
+    await ctx.close();
+    return { resolvedInUi: true };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

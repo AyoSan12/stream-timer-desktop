@@ -319,9 +319,9 @@ export function buildDefaultRulesForCurrency(baseCurrency = 'USD', rates = BASEL
     eventRules: {
       timerTriggers: { ...DEFAULT_TIMER_TRIGGERS },
       ytLevels: [
-        { id: 'yt-supporter', name: 'Supporter', price: ytPrices[0], creditMode: 'fixed_time', fixedMs: 5 * 60 * 1_000, isDefault: true },
-        { id: 'yt-vip', name: 'VIP', price: ytPrices[1], creditMode: 'follow_tiers', fixedMs: 15 * 60 * 1_000, isDefault: false },
-        { id: 'yt-sultan', name: 'Champion', price: ytPrices[2], creditMode: 'follow_tiers', fixedMs: 60 * 60 * 1_000, isDefault: false },
+        { id: 'yt-supporter', name: 'Supporter', price: ytPrices[0], creditMode: 'fixed_time', fixedMs: 5 * 60 * 1_000, isDefault: true, aliases: [] },
+        { id: 'yt-vip', name: 'VIP', price: ytPrices[1], creditMode: 'follow_tiers', fixedMs: 15 * 60 * 1_000, isDefault: false, aliases: [] },
+        { id: 'yt-sultan', name: 'Champion', price: ytPrices[2], creditMode: 'follow_tiers', fixedMs: 60 * 60 * 1_000, isDefault: false, aliases: [] },
       ],
       twitchTiers: {
         prime: { label: 'Prime', price: twPrices.prime, creditMode: 'fixed_time', fixedMs: 5 * 60 * 1_000 },
@@ -334,6 +334,119 @@ export function buildDefaultRulesForCurrency(baseCurrency = 'USD', rates = BASEL
         twitchBits: { perUnit: 100, pricePerUnit: u100, creditMode: 'fixed_time', unitMs: 2 * 60 * 1_000 },
       },
     },
+  };
+}
+
+export function normalizeYoutubeLevelKey(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractDigits(str) {
+  const m = String(str || '').match(/\d+/g);
+  return m ? m.join('-') : '';
+}
+
+function levenshteinDistance(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j += 1) prev[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    curr[0] = i;
+    const ca = a.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j += 1) {
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/**
+ * 5-stage YouTube Membership level matcher:
+ *   1. Exact (case-insensitive trimmed)
+ *   2. Saved aliases (exact or normalized)
+ *   3. Normalized (ignores emojis, punctuation, diacritics, extra spaces)
+ *   4. Safe typo guard (length >= 5, identical digit sequence, distance <= 1 [or <= 2 for len >= 9], strictly unique)
+ *   5. Zero-drop fallback to Default level (flagged as 'unmatched_fallback' when non-empty)
+ */
+export function matchYoutubeLevel(rawLevelName, ytLevels = []) {
+  const levels = Array.isArray(ytLevels) ? ytLevels : [];
+  const fallback = levels.find((l) => l.isDefault) || levels[0] || null;
+  const rawTrimmed = typeof rawLevelName === 'string' ? rawLevelName.trim().slice(0, 60) : '';
+  if (!rawTrimmed) {
+    return { level: fallback, matchStatus: 'empty_default', rawLevelName: '', fallbackLevelName: null };
+  }
+
+  const rawLower = rawTrimmed.toLowerCase();
+  const normRaw = normalizeYoutubeLevelKey(rawTrimmed);
+
+  // Stage 1: Exact case-insensitive match
+  const exact = levels.find((l) => l.name.trim().toLowerCase() === rawLower);
+  if (exact) return { level: exact, matchStatus: 'exact', rawLevelName: rawTrimmed, fallbackLevelName: null };
+
+  // Stage 2: Saved alias match (exact or normalized)
+  for (const l of levels) {
+    const aliases = Array.isArray(l.aliases) ? l.aliases : [];
+    for (const a of aliases) {
+      const al = String(a || '').trim();
+      if (!al) continue;
+      if (al.toLowerCase() === rawLower || (normRaw && normalizeYoutubeLevelKey(al) === normRaw)) {
+        return { level: l, matchStatus: 'alias', rawLevelName: rawTrimmed, fallbackLevelName: null };
+      }
+    }
+  }
+
+  // Stage 3: Normalized match (ignores emojis, symbols, diacritics, extra spaces)
+  if (normRaw) {
+    const normMatches = levels.filter((l) => normalizeYoutubeLevelKey(l.name) === normRaw);
+    if (normMatches.length === 1) {
+      return { level: normMatches[0], matchStatus: 'normalized', rawLevelName: rawTrimmed, fallbackLevelName: null };
+    }
+  }
+
+  // Stage 4: Conservative typo guard — NEVER auto-correct across different digits (e.g. "Tier 1" vs "Tier 2")
+  if (normRaw.length >= 5) {
+    const rawDigits = extractDigits(normRaw);
+    const fuzzyHits = [];
+    for (const l of levels) {
+      const candidates = [l.name, ...(Array.isArray(l.aliases) ? l.aliases : [])];
+      let matchedThisLevel = false;
+      for (const c of candidates) {
+        const normCand = normalizeYoutubeLevelKey(c);
+        if (normCand.length < 5) continue;
+        if (extractDigits(normCand) !== rawDigits) continue;
+        const maxDist = (normRaw.length >= 9 && normCand.length >= 9) ? 2 : 1;
+        if (Math.abs(normRaw.length - normCand.length) > maxDist) continue;
+        if (levenshteinDistance(normRaw, normCand) <= maxDist) {
+          matchedThisLevel = true;
+          break;
+        }
+      }
+      if (matchedThisLevel) fuzzyHits.push(l);
+    }
+    if (fuzzyHits.length === 1) {
+      return { level: fuzzyHits[0], matchStatus: 'fuzzy_safe', rawLevelName: rawTrimmed, fallbackLevelName: null };
+    }
+  }
+
+  // Stage 5: Zero-drop safe fallback + flag for 1-click user discovery
+  return {
+    level: fallback,
+    matchStatus: 'unmatched_fallback',
+    rawLevelName: rawTrimmed,
+    fallbackLevelName: fallback ? fallback.name : 'Default',
   };
 }
 
@@ -375,7 +488,7 @@ export function normalizeRulesConfig(raw, baseCurrency = 'USD', rates = BASELINE
     timerTriggers[k] = typeof srcTr[k] === 'boolean' ? srcTr[k] : true;
   }
 
-  // YouTube levels
+  // YouTube levels (with alias preservation & de-duplication)
   const rawLevels = Array.isArray(srcEv.ytLevels) && srcEv.ytLevels.length > 0 ? srcEv.ytLevels : def.eventRules.ytLevels;
   const seenLvl = new Set();
   const ytLevels = [];
@@ -389,10 +502,33 @@ export function normalizeRulesConfig(raw, baseCurrency = 'USD', rates = BASELINE
     const creditMode = CREDIT_MODES.has(l.creditMode) ? l.creditMode : 'fixed_time';
     const fixedMs = Math.max(0, Math.round(Number(l.fixedMs ?? 300_000) || 0));
     const id = typeof l.id === 'string' && l.id.trim() ? l.id.trim().slice(0, 48) : `yt-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || i}`;
-    ytLevels.push({ id, name, price, creditMode, fixedMs, isDefault: Boolean(l.isDefault) });
+    const rawAliases = Array.isArray(l.aliases) ? l.aliases : [];
+    const aliasSeen = new Set([name.toLowerCase()]);
+    const aliases = [];
+    for (const a of rawAliases) {
+      if (typeof a !== 'string') continue;
+      const clean = a.trim().slice(0, 60);
+      if (!clean || aliasSeen.has(clean.toLowerCase())) continue;
+      aliasSeen.add(clean.toLowerCase());
+      aliases.push(clean);
+      if (aliases.length >= 20) break;
+    }
+    ytLevels.push({ id, name, price, creditMode, fixedMs, isDefault: Boolean(l.isDefault), aliases });
   }
   if (ytLevels.length === 0) ytLevels.push(...def.eventRules.ytLevels);
-  if (!ytLevels.some((l) => l.isDefault)) ytLevels[0].isDefault = true;
+  const primaryNames = new Set(ytLevels.map((l) => l.name.toLowerCase()));
+  for (const l of ytLevels) {
+    l.aliases = l.aliases.filter((a) => !primaryNames.has(a.toLowerCase()));
+  }
+  let defaultAssigned = false;
+  for (const l of ytLevels) {
+    if (l.isDefault && !defaultAssigned) {
+      defaultAssigned = true;
+    } else {
+      l.isDefault = false;
+    }
+  }
+  if (!defaultAssigned) ytLevels[0].isDefault = true;
 
   // Twitch tiers
   const twitchTiers = {};
@@ -484,10 +620,8 @@ export function resolveTransactionCredit(tx, rulesConfig, fxState = { ratesPerUs
     const isGift = kind === 'yt_gift_member';
     const enabled = isGift ? triggers.ytGiftMember !== false : triggers.ytMember !== false;
     const qty = isGift ? Math.max(1, Math.trunc(Number(tx.quantity || 1))) : 1;
-    const targetName = typeof tx.levelName === 'string' ? tx.levelName.trim().toLowerCase() : '';
-    const lvl = ev.ytLevels.find((l) => l.name.toLowerCase() === targetName)
-      || ev.ytLevels.find((l) => l.isDefault)
-      || ev.ytLevels[0];
+    const match = matchYoutubeLevel(tx.levelName, ev.ytLevels);
+    const lvl = match.level;
     const grossAmount = roundCurrency(qty * (lvl?.price || 0), baseCur);
     let creditMs = 0;
     if (enabled && lvl) {
@@ -501,6 +635,10 @@ export function resolveTransactionCredit(tx, rulesConfig, fxState = { ratesPerUs
       creditMs,
       timerEnabled: enabled,
       resolvedLabel: lvl ? lvl.name : 'Member',
+      matchedLevelId: lvl ? lvl.id : null,
+      matchStatus: match.matchStatus,
+      rawLevelName: match.rawLevelName,
+      fallbackLevelName: match.fallbackLevelName,
       units: qty,
     };
   }

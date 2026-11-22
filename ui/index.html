@@ -300,6 +300,8 @@
         <span id="homeProfilePill" class="pill">USD · EN</span>
       </div>
 
+      <div id="homeYtAlert" class="yt-alert-banner" hidden></div>
+
       <section class="home-hero" aria-label="Live stream pulse">
         <div class="home-clock-block">
           <div id="homeClock" class="home-clock">00:00:00</div>
@@ -526,6 +528,8 @@
           <span id="donoChipAdded" class="pill">0h 0m</span>
         </div>
       </div>
+
+      <div id="donoYtAlert" class="yt-alert-banner" hidden></div>
 
       <div class="grid-donations">
         <section class="card" aria-labelledby="recDonoTitle">
@@ -889,6 +893,12 @@
               </select>
             </label>
             <label class="field">Supporter<input id="simSlName" type="text" value="Kenji"></label>
+            <div id="simSlLevelWrap" hidden>
+              <label class="field">YouTube Level Name
+                <input id="simSlLevel" type="text" list="simSlLevelHints" placeholder="e.g. Supporter, 👑 VIP!, or Anak Sultan">
+              </label>
+              <datalist id="simSlLevelHints"></datalist>
+            </div>
             <div class="row-2">
               <label class="field">Amount / Qty<input id="simSlAmt" type="number" step="any" value="1000"></label>
               <label class="field">Currency<select id="simSlCur"></select></label>
@@ -920,32 +930,54 @@
           <p class="view-sub" data-i18n="set.sub">Channel pricing catalog, 166 live exchange rates, and native desktop preferences.</p>
         </div>
         <div class="segmented" role="tablist" aria-label="Settings tabs">
-          <button type="button" class="seg-btn active" data-set-tab="youtube" data-i18n="set.tabYoutube">YouTube Catalog</button>
+          <button type="button" class="seg-btn active" data-set-tab="youtube"><span data-i18n="set.tabYoutube">YouTube Catalog</span><span id="ytTabBadge" class="pill pill-warn" hidden style="margin-left:5px;padding:1px 6px;font-size:10px;">0</span></button>
           <button type="button" class="seg-btn" data-set-tab="twitch" data-i18n="set.tabTwitch">Twitch Catalog</button>
           <button type="button" class="seg-btn" data-set-tab="currency" data-i18n="set.tabCurrency">Currency &amp; FX</button>
           <button type="button" class="seg-btn" data-set-tab="desktop" data-i18n="set.tabDesktop">Desktop &amp; Backup</button>
         </div>
       </div>
 
-      <div id="setPanelYoutube" class="grid-2">
-        <section class="card">
-          <div class="card-head"><h2 class="card-title">YouTube Membership Levels</h2><button id="saveYtBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button></div>
-          <div id="ytLevelsList" class="stack-sm"></div>
-        </section>
-        <section class="card">
-          <div class="card-head"><h2 class="card-title">Add Custom Level</h2></div>
-          <div class="stack-sm">
-            <div class="row-2">
-              <label class="field">Level Name<input id="ytNewName" type="text" placeholder="e.g. Gold Member"></label>
-              <label class="field"><span id="ytNewPriceLbl">Price</span><input id="ytNewPrice" type="number" min="0" step="any" placeholder="10"></label>
+      <div id="setPanelYoutube">
+        <section id="ytDiscoveredCard" class="card yt-disc-card" hidden>
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Auto-Detected YouTube Membership Levels</h2>
+              <p class="helper-text" style="margin:2px 0 0;">These levels came from live events and temporarily used your Default tier. Map them in 1 click.</p>
             </div>
-            <div class="row-2">
-              <label class="field">Credit Mode<select id="ytNewMode"><option value="fixed_time">Fixed Minutes</option><option value="follow_tiers">Follow Tiers</option></select></label>
-              <label class="field">Minutes<input id="ytNewMin" type="number" min="0" value="15"></label>
-            </div>
-            <button id="ytAddLvlBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Level</button>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2);">
+              <input id="ytResolveRetroChk" type="checkbox" checked>
+              Retroactively update Finance &amp; add missing timer credit
+            </label>
           </div>
+          <div id="ytDiscoveredList" class="stack-sm"></div>
         </section>
+
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">YouTube Membership Levels</h2>
+                <p class="helper-text" style="margin:2px 0 0;">Matches automatically across capitalization, spacing, emojis, and saved aliases.</p>
+              </div>
+              <button id="saveYtBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="common.save">Save</button>
+            </div>
+            <div id="ytLevelsList" class="stack-sm"></div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2 class="card-title">Add Custom Level</h2></div>
+            <div class="stack-sm">
+              <div class="row-2">
+                <label class="field">Level Name<input id="ytNewName" type="text" placeholder="e.g. Gold Member"></label>
+                <label class="field"><span id="ytNewPriceLbl">Price</span><input id="ytNewPrice" type="number" min="0" step="any" placeholder="10"></label>
+              </div>
+              <div class="row-2">
+                <label class="field">Credit Mode<select id="ytNewMode"><option value="fixed_time">Fixed Minutes</option><option value="follow_tiers">Follow Tiers</option></select></label>
+                <label class="field">Minutes<input id="ytNewMin" type="number" min="0" value="15"></label>
+              </div>
+              <button id="ytAddLvlBtn" type="button" class="btn btn-dark btn-pill btn-full">Add Level</button>
+            </div>
+          </section>
+        </div>
       </div>
 
       <div id="setPanelTwitch" hidden>
@@ -1092,6 +1124,26 @@
     <menu>
       <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>
       <button id="delProfConfirmBtn" value="confirm" class="btn btn-danger btn-pill btn-sm" disabled data-i18n="common.delete">Delete</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="ytCreateDiscoveredDialog" class="apple-dialog" aria-labelledby="ytDiscDlgTitle">
+  <form method="dialog">
+    <h2 id="ytDiscDlgTitle">Create Detected YouTube Tier</h2>
+    <p class="helper-text" style="margin-bottom:12px;">Exact payload name captured from YouTube so future events match 100% automatically.</p>
+    <div class="stack-sm">
+      <label class="field">Exact Level Name<input id="ytDiscCreateName" type="text" maxlength="60"></label>
+      <div class="row-2">
+        <label class="field"><span id="ytDiscCreatePriceLbl">Price</span><input id="ytDiscCreatePrice" type="number" min="0" step="any" value="50000"></label>
+        <label class="field">Minutes<input id="ytDiscCreateMin" type="number" min="0" value="15"></label>
+      </div>
+      <label class="field">Credit Mode<select id="ytDiscCreateMode"><option value="fixed_time">Fixed Minutes</option><option value="follow_tiers">Follow Tiers</option></select></label>
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;"><input id="ytDiscCreateRetro" type="checkbox" checked> Retroactively fix Finance &amp; add missing timer time</label>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>
+      <button id="ytDiscCreateSaveBtn" value="confirm" class="btn btn-primary btn-pill btn-sm">Create Tier</button>
     </menu>
   </form>
 </dialog>

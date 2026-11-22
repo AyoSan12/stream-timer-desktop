@@ -255,6 +255,129 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'E7-youtube-unmatched-discovery-and-1click-retroactive-resolve',
+  async fn() {
+    // Create an isolated IDR profile for clean YouTube Membership simulations
+    const pRes = await req(eng.base, '/api/profiles', {
+      method: 'POST',
+      body: { name: 'YT Member Sim', language: 'en', baseCurrency: 'IDR', streamPlatforms: ['youtube'] },
+    });
+    eq(pRes.status, 200, 'created IDR test profile');
+
+    await req(eng.base, '/api/command', { method: 'POST', body: { type: 'set', amountMs: 0 } });
+    const startSnap = (await req(eng.base, '/api/state')).data;
+    const baseRem = startSnap.remainingMs;
+
+    // 1. Live individual + 10x gift for unknown tier "Anak Sultan" -> zero-drop Default (Rp 10.000, +5m each = 11 * 5m = 55m)
+    const ev1 = await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_member', gifterName: 'Budi', levelName: 'Anak Sultan' },
+    });
+    eq(ev1.status, 200, 'unmatched individual yt_member still applied (zero-drop)');
+    eq(ev1.data.grossAmount, 10000, 'temporarily uses Default Supporter price (10000)');
+    eq(ev1.data.creditMs, 300000, 'temporarily uses Default Supporter time (+5m)');
+
+    const ev2 = await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_gift_member', gifterName: 'SultanBudi', amount: 10, levelName: 'Anak Sultan' },
+    });
+    eq(ev2.status, 200, 'unmatched 10x gift yt_gift_member still applied (zero-drop)');
+    eq(ev2.data.grossAmount, 100000, '10x Default price = 100000');
+    eq(ev2.data.creditMs, 3000000, '10x Default time = 50m');
+
+    // Verify auto-detection banner data appears in /api/rules, /api/home, /api/donations
+    const rBefore = (await req(eng.base, '/api/rules')).data;
+    eq(rBefore.unmatchedYoutubeLevels.length, 1, '1 unmatched YouTube level auto-detected');
+    eq(rBefore.unmatchedYoutubeLevels[0].rawLevelName, 'Anak Sultan', 'exact payload string captured');
+    eq(rBefore.unmatchedYoutubeLevels[0].eventCount, 2, '2 events grouped together');
+    eq(rBefore.unmatchedYoutubeLevels[0].totalUnits, 11, '11 total memberships');
+
+    // 2. 1-Click Link as Alias -> Champion (Rp 100.000, follow_tiers -> 2h30m each -> 11 * 150m = 27h30m; delta = +26h35m = 95,700,000 ms)
+    const champ = rBefore.eventRules.ytLevels.find((l) => l.name === 'Champion');
+    const resLink = await req(eng.base, '/api/rules/youtube-resolve', {
+      method: 'POST',
+      body: {
+        rawLevelName: 'Anak Sultan',
+        action: 'link_alias',
+        targetLevelId: champ.id,
+        retroactive: true,
+        applyTimerDelta: true,
+      },
+    });
+    eq(resLink.status, 200, '1-click link_alias succeeded');
+    eq(resLink.data.updatedEvents, 2, 'retroactively updated both events');
+    eq(resLink.data.unmatched.length, 0, 'unmatched alert cleared after resolve');
+    assert(resLink.data.timerAppliedMs > 0, `applied missing timer credit (+${resLink.data.timerAppliedMs}ms)`);
+
+    // Check Finance report updated retroactively (11 * 100,000 = 1,100,000 IDR)
+    const fin = (await req(eng.base, '/api/finance/report?session=current')).data;
+    eq(fin.summary.grossAmount, 1_100_000, 'Finance gross retroactively corrected to Rp 1.100.000');
+
+    // Check future event with "Anak Sultan" matches Champion immediately
+    const ev3 = await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_member', gifterName: 'NextMember', levelName: 'Anak Sultan' },
+    });
+    eq(ev3.data.grossAmount, 100000, 'future Anak Sultan directly matches Champion (Rp 100.000)');
+
+    // 3. Test 1-click Create New Tier ("Mega Patron" Rp 250.000, +3h)
+    await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_member', gifterName: 'Patron1', levelName: 'Mega Patron' },
+    });
+    const resCreate = await req(eng.base, '/api/rules/youtube-resolve', {
+      method: 'POST',
+      body: {
+        rawLevelName: 'Mega Patron',
+        action: 'create_level',
+        newLevel: { price: 250000, creditMode: 'fixed_time', fixedMs: 10_800_000 },
+        retroactive: true,
+        applyTimerDelta: true,
+      },
+    });
+    eq(resCreate.status, 200, '1-click create_level succeeded');
+    eq(resCreate.data.timerAppliedMs, 10_800_000 - 300_000, 'added exact +2h55m timer diff');
+
+    // 4. Test Dismiss ("Promo Member" -> Keep Default)
+    await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_member', gifterName: 'Promo1', levelName: 'Promo Member' },
+    });
+    const resDism = await req(eng.base, '/api/rules/youtube-resolve', {
+      method: 'POST',
+      body: { rawLevelName: 'Promo Member', action: 'dismiss' },
+    });
+    eq(resDism.status, 200, 'dismiss succeeded');
+    eq(resDism.data.unmatched.length, 0, 'dismissed level removed from alert list');
+
+    // 5. Test Trigger Disabled (ytGiftMember: false) -> retroactive Finance updates, timerDeltaMs === 0
+    const rulesCur = (await req(eng.base, '/api/rules')).data;
+    rulesCur.eventRules.timerTriggers.ytGiftMember = false;
+    await req(eng.base, '/api/rules', { method: 'PUT', body: rulesCur });
+    await req(eng.base, '/api/integrations/streamlabs/test', {
+      method: 'POST',
+      body: { eventType: 'yt_gift_member', gifterName: 'GifterOff', amount: 2, levelName: 'Silent Tier' },
+    });
+    const resNoTimer = await req(eng.base, '/api/rules/youtube-resolve', {
+      method: 'POST',
+      body: {
+        rawLevelName: 'Silent Tier',
+        action: 'link_alias',
+        targetLevelId: champ.id,
+        retroactive: true,
+        applyTimerDelta: true,
+      },
+    });
+    eq(resNoTimer.status, 200, 'resolved when trigger disabled');
+    eq(resNoTimer.data.timerDeltaMs, 0, 'timerDeltaMs stays 0 when ytGiftMember trigger is OFF');
+
+    const finalSnap = (await req(eng.base, '/api/state')).data;
+    assert(finalSnap.remainingMs > baseRem, 'timer remaining increased cleanly');
+    return { ok: true, resolvedFinanceGross: (await req(eng.base, '/api/finance/report?session=current')).data.summary.grossAmount };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

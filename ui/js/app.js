@@ -61,6 +61,8 @@ let obsRevealed = false;
 let overlayDirty = false;
 let overlaySaveTimer = null;
 let rulesSaveTimer = null;
+let unmatchedYoutubeLevels = [];
+let pendingDiscCreateLevel = '';
 let toastTimer = null;
 let helloTimer = null;
 let link = null;
@@ -112,6 +114,10 @@ function fmtDuration(ms) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   return [h ? `${h}h` : '', m ? `${m}m` : '', s ? `${s}s` : ''].filter(Boolean).join(' ') || '0s';
+}
+
+function escHtml(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 async function copyText(text, okMsg = 'Copied to clipboard') {
@@ -718,7 +724,13 @@ async function hydrateActiveWorkspace() {
         if (!overlayDirty) syncOverlayControls();
         else applyObsPreview();
       },
-      onActivity: () => {
+      onActivity: (ev) => {
+        if (ev && ev.matchStatus === 'unmatched_fallback' && ev.rawLevelName) {
+          showToast(`New YouTube tier detected: "${ev.rawLevelName}" — applied as ${ev.fallbackLevelName || 'Default'}. Map it in 1 click inside Settings → YouTube Catalog.`, 7500);
+          loadRules();
+        } else if (ev && ev.kind === 'yt_level_resolved') {
+          loadRules();
+        }
         if (activeView === 'home') loadHome();
         if (activeView === 'donations') loadDonations();
         if (activeView === 'finance') loadFinance();
@@ -777,6 +789,7 @@ async function loadHome() {
   if (!r.ok) return;
   const h = r.data;
   const cur = h.profile.baseCurrency;
+  if (Array.isArray(h.unmatchedYoutubeLevels)) renderUnmatchedYoutubeUi(h.unmatchedYoutubeLevels);
 
   $('homeObsCount').textContent = `OBS Overlay: ${h.clients.obs} connected`;
   $('obsConnBadge').textContent = `${h.clients.obs} source${h.clients.obs === 1 ? '' : 's'}`;
@@ -882,6 +895,7 @@ async function loadDonations() {
   const r = await api('/api/donations');
   if (!r.ok) return;
   donations = r.data.donations || [];
+  if (Array.isArray(r.data.unmatchedYoutubeLevels)) renderUnmatchedYoutubeUi(r.data.unmatchedYoutubeLevels);
   const s = r.data.stats;
   const cur = getCurrency();
   const mins = Math.floor((s.totalCreditMs || 0) / 60000);
@@ -918,11 +932,13 @@ function renderDonationsTable() {
     const tr = document.createElement('tr');
     const origSub = d.originalCurrency && d.originalCurrency !== cur && d.originalAmount
       ? `<span class="amt-sub">${d.originalAmount} ${d.originalCurrency}</span>` : '';
+    const unmBadge = d.matchStatus === 'unmatched_fallback' && d.rawLevelName
+      ? ` <button type="button" class="pill pill-warn" style="cursor:pointer;border:none;font-size:10.5px;" data-goto-yt-map="${escHtml(d.rawLevelName)}">Unmatched: "${escHtml(d.rawLevelName)}" → Fix</button>` : '';
     tr.innerHTML = `
       ${donoSelectMode ? `<td><input type="checkbox" data-sel-dono="${d.eventId}" ${donoSelected.has(d.eventId) ? 'checked' : ''} aria-label="Select ${d.gifterName}"></td>` : ''}
       <td>${fmtDateTime(d.appliedAtMs)}</td>
-      <td><strong>${d.gifterName}</strong></td>
-      <td><span class="pill">${d.provider}${d.tierOrLevel ? ` · ${d.tierOrLevel}` : ''}</span></td>
+      <td><strong>${escHtml(d.gifterName)}</strong></td>
+      <td><span class="pill">${escHtml(d.provider)}${d.tierOrLevel ? ` · ${escHtml(d.tierOrLevel)}` : ''}</span>${unmBadge}</td>
       <td class="num">${fmtMoney(d.grossAmount, cur)}${origSub}</td>
       <td class="num text-accent">+${fmtDuration(d.creditMs)}</td>
       <td class="num"><button type="button" class="btn btn-link" style="color:var(--danger);" data-del-dono="${d.eventId}">Remove</button></td>
@@ -1212,8 +1228,112 @@ async function loadRules() {
   if (!r.ok) return;
   rulesData = r.data;
   draftRules = structuredClone(r.data);
+  if (Array.isArray(r.data.unmatchedYoutubeLevels)) {
+    renderUnmatchedYoutubeUi(r.data.unmatchedYoutubeLevels);
+  }
   renderRulesUi();
   renderCatalogsUi();
+}
+
+function openYoutubeCatalogSettings() {
+  switchView('settings');
+  document.querySelector('[data-set-tab="youtube"]')?.click();
+  loadRules();
+}
+
+function renderUnmatchedYoutubeUi(list = unmatchedYoutubeLevels) {
+  unmatchedYoutubeLevels = Array.isArray(list) ? list : [];
+  const count = unmatchedYoutubeLevels.length;
+
+  const tabBadge = $('ytTabBadge');
+  if (tabBadge) {
+    tabBadge.hidden = count === 0;
+    tabBadge.textContent = String(count);
+  }
+
+  for (const bannerId of ['homeYtAlert', 'donoYtAlert']) {
+    const el = $(bannerId);
+    if (!el) continue;
+    if (count === 0) {
+      el.hidden = true;
+      el.replaceChildren();
+    } else {
+      el.hidden = false;
+      const sample = unmatchedYoutubeLevels.slice(0, 2).map((u) => `"${u.rawLevelName}"`).join(', ');
+      const extra = count > 2 ? ` +${count - 2} more` : '';
+      el.innerHTML = `
+        <div>
+          <strong>${count} YouTube Membership ${count === 1 ? 'level' : 'levels'} auto-detected (${escHtml(sample)}${extra})</strong>
+          <span>Temporarily using Default tier so zero events were dropped. Map or create ${count === 1 ? 'it' : 'them'} in 1 click.</span>
+        </div>
+        <button type="button" class="btn btn-primary btn-pill btn-sm" data-open-yt-catalog>Map in 1 Click →</button>
+      `;
+    }
+  }
+
+  const card = $('ytDiscoveredCard');
+  const box = $('ytDiscoveredList');
+  if (!card || !box) return;
+  card.hidden = count === 0;
+  box.replaceChildren();
+  if (count === 0) return;
+
+  const levels = draftRules?.eventRules?.ytLevels || [];
+  const cur = draftRules?.baseCurrency || getCurrency();
+  for (const u of unmatchedYoutubeLevels) {
+    const row = document.createElement('div');
+    row.className = 'yt-disc-row';
+    const opts = levels.map((l) => `<option value="${escHtml(l.id)}">${escHtml(l.name)} (${fmtMoney(l.price, cur)})</option>`).join('');
+    const matchedHint = u.alreadyMatchedLevel
+      ? `<span class="pill pill-ok">Now matches "${escHtml(u.alreadyMatchedLevel.name)}"</span>`
+      : '';
+    row.innerHTML = `
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:13.5px;">"${escHtml(u.rawLevelName)}"</strong>
+          <span class="pill pill-warn">${u.eventCount} ${u.eventCount === 1 ? 'event' : 'events'} (${u.totalUnits}×)</span>
+          ${matchedHint}
+        </div>
+        <div class="helper-text" style="margin-top:2px;">Temporarily credited as <strong>${escHtml(u.fallbackLevelName)}</strong> · Applied ${fmtMoney(u.totalAppliedGross, cur)} (+${fmtDuration(u.totalAppliedCreditMs)})</div>
+      </div>
+      <div class="yt-disc-actions">
+        ${u.alreadyMatchedLevel
+          ? `<button type="button" class="btn btn-primary btn-pill btn-sm" data-yt-disc-retro="${escHtml(u.rawLevelName)}">Update Past Events</button>`
+          : `<select class="scope-pill-select" style="height:30px;font-size:12px;" aria-label="Target YouTube tier for ${escHtml(u.rawLevelName)}" data-yt-disc-sel="${escHtml(u.rawLevelName)}">${opts}</select>
+             <button type="button" class="btn btn-primary btn-pill btn-sm" data-yt-disc-link="${escHtml(u.rawLevelName)}">Link as Alias</button>
+             <button type="button" class="btn btn-dark btn-pill btn-sm" data-yt-disc-create="${escHtml(u.rawLevelName)}">Create Tier…</button>`}
+        <button type="button" class="btn btn-link btn-sm" data-yt-disc-dismiss="${escHtml(u.rawLevelName)}">Keep Default</button>
+      </div>
+    `;
+    box.append(row);
+  }
+}
+
+async function resolveYoutubeLevelAction(payload) {
+  const r = await api('/api/rules/youtube-resolve', { method: 'POST', body: payload });
+  if (!r.ok) {
+    showToast(`Could not update level: ${r.data?.error || r.status}`);
+    return false;
+  }
+  if (r.data.rules) {
+    rulesData = r.data.rules;
+    draftRules = structuredClone(r.data.rules);
+    renderRulesUi();
+    renderCatalogsUi();
+  }
+  if (Array.isArray(r.data.unmatched)) {
+    renderUnmatchedYoutubeUi(r.data.unmatched);
+  }
+  await Promise.all([link?.refresh(), loadDonations(), loadHome(), loadFinance()]);
+  const parts = [];
+  if (r.data.updatedEvents > 0) parts.push(`${r.data.updatedEvents} ${r.data.updatedEvents === 1 ? 'event' : 'events'} updated`);
+  if (r.data.timerAppliedMs > 0) parts.push(`+${fmtDuration(r.data.timerAppliedMs)} added to timer`);
+  const suffix = parts.length ? ` (${parts.join(', ')})` : '';
+  const actTxt = payload.action === 'dismiss'
+    ? `Kept "${payload.rawLevelName}" as Default`
+    : (payload.action === 'create_level' ? `Created tier "${payload.rawLevelName}"${suffix}` : `Linked "${payload.rawLevelName}"${suffix}`);
+  showToast(actTxt, 5500);
+  return true;
 }
 
 function renderRulesUi() {
@@ -1261,15 +1381,46 @@ function renderCatalogsUi() {
   const ytBox = $('ytLevelsList');
   ytBox.replaceChildren();
   $('donoYtLevel').replaceChildren();
-  for (const l of draftRules.eventRules.ytLevels) {
+  const hints = $('simSlLevelHints');
+  if (hints) hints.replaceChildren();
+
+  const totalLevels = draftRules.eventRules.ytLevels.length;
+  for (let idx = 0; idx < totalLevels; idx += 1) {
+    const l = draftRules.eventRules.ytLevels[idx];
     $('donoYtLevel').append(new Option(`${l.name} (${fmtMoney(l.price, cur)})`, l.name));
-    const row = document.createElement('div');
-    row.className = 'fin-deduct-row';
-    row.style.padding = '8px 10px';
-    row.style.borderRadius = '10px';
-    row.style.background = 'var(--surface)';
-    row.innerHTML = `<div><strong>${l.name}</strong>${l.isDefault ? ' <span class="pill pill-accent">Default</span>' : ''}<div class="helper-text">${fmtMoney(l.price, cur)} · ${l.creditMode === 'follow_tiers' ? 'Follow Tiers' : `+${fmtDuration(l.fixedMs)}`}</div></div><button type="button" class="btn btn-link" style="color:var(--danger);" data-rm-yt="${l.name}">Remove</button>`;
-    ytBox.append(row);
+    if (hints) hints.append(new Option(l.name));
+
+    const aliases = Array.isArray(l.aliases) ? l.aliases : [];
+    const aliasChips = aliases.map((a) => `
+      <span class="yt-alias-chip">
+        <span>alias: ${escHtml(a)}</span>
+        <button type="button" title="Remove alias" aria-label="Remove alias ${escHtml(a)}" data-yt-idx="${idx}" data-rm-yt-alias="${escHtml(a)}">&times;</button>
+      </span>
+    `).join('');
+
+    const card = document.createElement('div');
+    card.className = 'yt-level-card';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:170px;">
+          <input type="text" class="yt-level-name-in" value="${escHtml(l.name)}" maxlength="60" aria-label="YouTube level name" data-yt-idx="${idx}" data-yt-f="name">
+          ${l.isDefault ? '<span class="pill pill-accent">Default</span>' : `<button type="button" class="btn btn-pill btn-sm" data-yt-default="${idx}">Set Default</button>`}
+        </div>
+        ${totalLevels > 1 ? `<button type="button" class="btn btn-link" style="color:var(--danger);" data-rm-yt="${escHtml(l.name)}">Remove</button>` : ''}
+      </div>
+      <div class="row-3">
+        <label class="field">Price (${cur})<input type="number" min="0" step="any" value="${l.price}" data-yt-idx="${idx}" data-yt-f="price"></label>
+        <label class="field">Credit Mode
+          <select data-yt-idx="${idx}" data-yt-f="creditMode">
+            <option value="fixed_time" ${l.creditMode === 'fixed_time' ? 'selected' : ''}>Fixed Minutes</option>
+            <option value="follow_tiers" ${l.creditMode === 'follow_tiers' ? 'selected' : ''}>Follow Tiers</option>
+          </select>
+        </label>
+        <label class="field">Minutes<input type="number" min="0" value="${Math.round(l.fixedMs / 60000)}" data-yt-idx="${idx}" data-yt-f="min" ${l.creditMode === 'follow_tiers' ? 'disabled' : ''}></label>
+      </div>
+      ${aliasChips ? `<div class="yt-alias-row">${aliasChips}</div>` : ''}
+    `;
+    ytBox.append(card);
   }
 
   const twBox = $('twTierMatrix');
@@ -1310,10 +1461,23 @@ async function saveRulesToServer(toastMsg = 'Saved rules', silent = false) {
     else if (f === 'creditMode') draftRules.eventRules.twitchTiers[k].creditMode = c.value;
     else if (f === 'min') draftRules.eventRules.twitchTiers[k].fixedMs = Math.max(0, Math.round(Number(c.value) || 0)) * 60000;
   });
+  $('ytLevelsList').querySelectorAll('[data-yt-idx][data-yt-f]').forEach((c) => {
+    const idx = Number(c.dataset.ytIdx);
+    const lvl = draftRules.eventRules.ytLevels[idx];
+    if (!lvl) return;
+    const f = c.dataset.ytF;
+    if (f === 'name' && c.value.trim()) lvl.name = c.value.trim().slice(0, 60);
+    else if (f === 'price') lvl.price = Math.max(0, Number(c.value) || 0);
+    else if (f === 'creditMode') lvl.creditMode = c.value === 'follow_tiers' ? 'follow_tiers' : 'fixed_time';
+    else if (f === 'min') lvl.fixedMs = Math.max(0, Math.round(Number(c.value) || 0)) * 60000;
+  });
   const r = await api('/api/rules', { method: 'PUT', body: draftRules });
   if (r.ok) {
     rulesData = r.data;
     draftRules = structuredClone(r.data);
+    if (Array.isArray(r.data.unmatchedYoutubeLevels)) {
+      renderUnmatchedYoutubeUi(r.data.unmatchedYoutubeLevels);
+    }
     renderRulesUi();
     renderCatalogsUi();
     if (!silent && toastMsg) showToast(toastMsg);
@@ -1960,6 +2124,11 @@ function bindAllEvents() {
     if (r.ok) { donoSelected.clear(); donoSelectMode = false; await loadDonations(); showToast(`Removed ${r.data.deletedCount} item(s)`); }
   });
   $('donoBody').addEventListener('click', async (e) => {
+    const mapBtn = e.target.closest('[data-goto-yt-map]');
+    if (mapBtn) {
+      openYoutubeCatalogSettings();
+      return;
+    }
     const del = e.target.closest('[data-del-dono]');
     if (del) {
       await api('/api/donations/delete', { method: 'POST', body: { eventIds: [del.dataset.delDono], subtractFromTimer: false } });
@@ -2057,24 +2226,114 @@ function bindAllEvents() {
   });
   $('saveRulesBtn').addEventListener('click', () => saveRulesToServer('Saved donation tiers'));
   $('saveTriggersBtn').addEventListener('click', () => saveRulesToServer('Saved timer triggers'));
+  // Global 1-click YouTube Catalog discovery banner jumps
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-open-yt-catalog]')) {
+      openYoutubeCatalogSettings();
+    }
+  });
+
+  // Auto-Detected YouTube Membership 1-Click Resolver
+  $('ytDiscoveredList').addEventListener('click', async (e) => {
+    const retro = Boolean($('ytResolveRetroChk')?.checked);
+    const linkBtn = e.target.closest('[data-yt-disc-link]');
+    if (linkBtn) {
+      const rawName = linkBtn.dataset.ytDiscLink;
+      const sel = $('ytDiscoveredList').querySelector(`[data-yt-disc-sel="${CSS.escape(rawName)}"]`);
+      const targetId = sel ? sel.value : '';
+      if (!targetId) return;
+      linkBtn.disabled = true;
+      await resolveYoutubeLevelAction({ rawLevelName: rawName, action: 'link_alias', targetLevelId: targetId, retroactive: retro, applyTimerDelta: retro });
+      return;
+    }
+    const retroBtn = e.target.closest('[data-yt-disc-retro]');
+    if (retroBtn) {
+      retroBtn.disabled = true;
+      await resolveYoutubeLevelAction({ rawLevelName: retroBtn.dataset.ytDiscRetro, action: 'retroactive_only', retroactive: true, applyTimerDelta: true });
+      return;
+    }
+    const createBtn = e.target.closest('[data-yt-disc-create]');
+    if (createBtn) {
+      const rawName = createBtn.dataset.ytDiscCreate;
+      pendingDiscCreateLevel = rawName;
+      const cur = draftRules?.baseCurrency || getCurrency();
+      $('ytDiscCreateName').value = rawName;
+      $('ytDiscCreatePriceLbl').textContent = `Price (${cur})`;
+      $('ytDiscCreatePrice').value = cur === 'IDR' ? '50000' : (cur === 'JPY' ? '1190' : (cur === 'KRW' ? '12000' : '10'));
+      $('ytDiscCreateMode').value = 'fixed_time';
+      $('ytDiscCreateMin').value = '15';
+      $('ytDiscCreateRetro').checked = retro;
+      $('ytCreateDiscoveredDialog').showModal();
+      return;
+    }
+    const dismBtn = e.target.closest('[data-yt-disc-dismiss]');
+    if (dismBtn) {
+      dismBtn.disabled = true;
+      await resolveYoutubeLevelAction({ rawLevelName: dismBtn.dataset.ytDiscDismiss, action: 'dismiss' });
+    }
+  });
+
+  $('ytCreateDiscoveredDialog').addEventListener('close', async () => {
+    if ($('ytCreateDiscoveredDialog').returnValue !== 'confirm') return;
+    const rawName = $('ytDiscCreateName').value.trim() || pendingDiscCreateLevel;
+    if (!rawName) return;
+    const retro = Boolean($('ytDiscCreateRetro').checked);
+    await resolveYoutubeLevelAction({
+      rawLevelName: rawName,
+      action: 'create_level',
+      newLevel: {
+        price: Number($('ytDiscCreatePrice').value) || 0,
+        creditMode: $('ytDiscCreateMode').value,
+        fixedMs: Math.max(0, Math.round(Number($('ytDiscCreateMin').value) || 0)) * 60000,
+      },
+      retroactive: retro,
+      applyTimerDelta: retro,
+    });
+  });
+
   $('ytAddLvlBtn').addEventListener('click', () => {
     const name = $('ytNewName').value.trim();
     const price = Number($('ytNewPrice').value);
     if (!name || !Number.isFinite(price)) return;
     draftRules.eventRules.ytLevels.push({
       id: `yt-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-      name, price, creditMode: $('ytNewMode').value, fixedMs: (Number($('ytNewMin').value) || 10) * 60000, isDefault: false,
+      name, price, creditMode: $('ytNewMode').value, fixedMs: (Number($('ytNewMin').value) || 10) * 60000, isDefault: false, aliases: [],
     });
     $('ytNewName').value = ''; $('ytNewPrice').value = '';
     renderCatalogsUi();
     saveRulesToServer('Saved YouTube level');
   });
   $('ytLevelsList').addEventListener('click', (e) => {
+    const defBtn = e.target.closest('[data-yt-default]');
+    if (defBtn) {
+      const idx = Number(defBtn.dataset.ytDefault);
+      draftRules.eventRules.ytLevels.forEach((lvl, i) => { lvl.isDefault = (i === idx); });
+      renderCatalogsUi();
+      saveRulesToServer('Updated default YouTube level');
+      return;
+    }
+    const rmAliasBtn = e.target.closest('[data-rm-yt-alias]');
+    if (rmAliasBtn) {
+      const idx = Number(rmAliasBtn.dataset.ytIdx);
+      const alias = rmAliasBtn.dataset.rmYtAlias;
+      const lvl = draftRules.eventRules.ytLevels[idx];
+      if (lvl && Array.isArray(lvl.aliases)) {
+        lvl.aliases = lvl.aliases.filter((a) => a !== alias);
+        renderCatalogsUi();
+        saveRulesToServer('Removed YouTube alias');
+      }
+      return;
+    }
     const b = e.target.closest('[data-rm-yt]');
     if (b && draftRules.eventRules.ytLevels.length > 1) {
       draftRules.eventRules.ytLevels = draftRules.eventRules.ytLevels.filter((x) => x.name !== b.dataset.rmYt);
       renderCatalogsUi();
       saveRulesToServer('Removed YouTube level');
+    }
+  });
+  $('ytLevelsList').addEventListener('change', (e) => {
+    if (e.target.matches('[data-yt-idx][data-yt-f]')) {
+      saveRulesToServer('Saved YouTube level');
     }
   });
   $('twTierMatrix').addEventListener('change', () => scheduleRulesAutoSave('Saved Twitch catalog'));
@@ -2139,12 +2398,22 @@ function bindAllEvents() {
       }
     }
   });
+  const syncSimSlMode = () => {
+    const tp = $('simSlType').value;
+    $('simSlLevelWrap').hidden = !(tp === 'yt_member' || tp === 'yt_gift_member');
+  };
+  $('simSlType').addEventListener('change', syncSimSlMode);
+  syncSimSlMode();
+
   $('simSlBtn').addEventListener('click', async () => {
-    const r = await api('/api/integrations/streamlabs/test', {
-      method: 'POST',
-      body: { eventType: $('simSlType').value, gifterName: $('simSlName').value, amount: Number($('simSlAmt').value), currency: $('simSlCur').value },
-    });
-    if (r.ok) { await link?.refresh(); await loadDonations(); showToast(`Streamlabs event applied (+${fmtDuration(r.data.creditMs)})`); }
+    const tp = $('simSlType').value;
+    const body = { eventType: tp, gifterName: $('simSlName').value, amount: Number($('simSlAmt').value), currency: $('simSlCur').value };
+    if (tp === 'yt_member' || tp === 'yt_gift_member') {
+      const lv = $('simSlLevel').value.trim();
+      if (lv) body.levelName = lv;
+    }
+    const r = await api('/api/integrations/streamlabs/test', { method: 'POST', body });
+    if (r.ok) { await link?.refresh(); await loadDonations(); await loadRules(); showToast(`Streamlabs event applied (+${fmtDuration(r.data.creditMs)})`); }
   });
   $('simWhBtn').addEventListener('click', async () => {
     const r = await api('/api/webhooks/test', {

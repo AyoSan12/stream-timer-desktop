@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import {
   applyCommand, snapshotOf, MAX_SAFE_MS,
   buildDefaultRulesForCurrency, normalizeRulesConfig,
+  matchYoutubeLevel, normalizeYoutubeLevelKey, resolveTransactionCredit,
 } from './domain.js';
 import {
   buildDefaultFinanceConfig, sanitizeFinanceConfig,
@@ -201,6 +202,9 @@ export function readDonationHistory(db, { limit = 100 } = {}) {
         originalAmount: typeof payload.originalAmount === 'number' ? payload.originalAmount : null,
         originalCurrency: typeof payload.originalCurrency === 'string' ? payload.originalCurrency : null,
         tierOrLevel: typeof payload.tierOrLevel === 'string' ? payload.tierOrLevel : null,
+        rawLevelName: typeof payload.rawLevelName === 'string' ? payload.rawLevelName : null,
+        matchStatus: typeof payload.matchStatus === 'string' ? payload.matchStatus : null,
+        fallbackLevelName: typeof payload.fallbackLevelName === 'string' ? payload.fallbackLevelName : null,
       };
     }),
   };
@@ -451,4 +455,235 @@ export function readFinanceReport(db, baseCurrency, ratesPerUsd, filters = {}) {
     deletedAtMs: r.deleted_at_ms === null ? null : Number(r.deleted_at_ms),
   }));
   return buildFinanceReport(rows, sessions, config, filters);
+}
+
+/**
+ * Scan non-deleted YouTube membership events that fell back to Default because their
+ * payload level name wasn't in the catalog yet, grouped by normalized level key.
+ */
+export function readUnmatchedYoutubeLevels(db, rulesConfig) {
+  const rows = db.prepare(
+    `SELECT event_id, provider, gross_amount, credit_ms, applied_at_ms, payload_json
+     FROM donation_event
+     WHERE deleted_at_ms IS NULL AND provider IN ('yt-membership', 'yt-gift-member')
+     ORDER BY applied_at_ms DESC`,
+  ).all();
+
+  const groups = new Map();
+  const ytLevels = rulesConfig?.eventRules?.ytLevels || [];
+
+  for (const r of rows) {
+    const payload = JSON.parse(r.payload_json || '{}');
+    if (payload.matchStatus !== 'unmatched_fallback') continue;
+    const rawLevelName = typeof payload.rawLevelName === 'string' ? payload.rawLevelName.trim() : '';
+    if (!rawLevelName) continue;
+    const key = normalizeYoutubeLevelKey(rawLevelName) || rawLevelName.toLowerCase();
+    const units = Math.max(1, Math.trunc(Number(payload.units || 1)));
+    const appliedAtMs = Number(r.applied_at_ms) || 0;
+
+    if (!groups.has(key)) {
+      const currentMatch = matchYoutubeLevel(rawLevelName, ytLevels);
+      groups.set(key, {
+        key,
+        rawLevelName,
+        eventCount: 0,
+        totalUnits: 0,
+        totalAppliedGross: 0,
+        totalAppliedCreditMs: 0,
+        fallbackLevelName: payload.fallbackLevelName || 'Default',
+        lastSeenAtMs: appliedAtMs,
+        alreadyMatchedLevel: currentMatch.matchStatus !== 'unmatched_fallback' && currentMatch.level
+          ? { id: currentMatch.level.id, name: currentMatch.level.name }
+          : null,
+      });
+    }
+    const g = groups.get(key);
+    g.eventCount += 1;
+    g.totalUnits += units;
+    g.totalAppliedGross += Number(r.gross_amount) || 0;
+    g.totalAppliedCreditMs += Number(r.credit_ms) || 0;
+    if (appliedAtMs > g.lastSeenAtMs) {
+      g.lastSeenAtMs = appliedAtMs;
+      g.rawLevelName = rawLevelName;
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => b.lastSeenAtMs - a.lastSeenAtMs);
+}
+
+/**
+ * 1-click atomic resolution for an auto-detected YouTube Membership level:
+ *   - 'link_alias'       : attaches rawLevelName as a permanent alias to targetLevelId
+ *   - 'create_level'     : creates a new YouTube tier with the verbatim rawLevelName
+ *   - 'retroactive_only' : keeps existing catalog (when already matched manually) and fixes past events
+ *   - 'dismiss'          : acknowledges Default fallback for past events without changing catalog
+ * Optionally recalculates past events' Finance snapshots and applies missing positive timer credit.
+ */
+export function resolveUnmatchedYoutubeLevel(
+  db,
+  { rawLevelName, action, targetLevelId = '', newLevel = null, retroactive = true, applyTimerDelta = true },
+  baseCurrency,
+  fxState,
+) {
+  const rawTrimmed = typeof rawLevelName === 'string' ? rawLevelName.trim().slice(0, 60) : '';
+  if (!rawTrimmed) return { ok: false, error: 'missing_level_name' };
+  const targetKey = normalizeYoutubeLevelKey(rawTrimmed) || rawTrimmed.toLowerCase();
+  const rates = fxState?.ratesPerUsd || null;
+
+  return withImmediateTx(db, () => {
+    const now = nowMs();
+    let rules = readDonationRules(db, baseCurrency, rates);
+    let nextRules = rules;
+
+    if (action === 'dismiss') {
+      const rows = db.prepare(
+        `SELECT event_id, payload_json FROM donation_event
+         WHERE deleted_at_ms IS NULL AND provider IN ('yt-membership', 'yt-gift-member')`,
+      ).all();
+      const upd = db.prepare('UPDATE donation_event SET payload_json = ? WHERE event_id = ?');
+      let dismissed = 0;
+      for (const r of rows) {
+        const p = JSON.parse(r.payload_json || '{}');
+        if (p.matchStatus !== 'unmatched_fallback') continue;
+        const rk = normalizeYoutubeLevelKey(p.rawLevelName) || String(p.rawLevelName || '').trim().toLowerCase();
+        if (rk !== targetKey) continue;
+        p.matchStatus = 'acknowledged_default';
+        upd.run(JSON.stringify(p), r.event_id);
+        dismissed += 1;
+      }
+      return {
+        ok: true,
+        action,
+        rules,
+        updatedEvents: dismissed,
+        grossDelta: 0,
+        timerDeltaMs: 0,
+        timerAppliedMs: 0,
+        changed: false,
+        snapshot: null,
+        unmatched: readUnmatchedYoutubeLevels(db, rules),
+      };
+    }
+
+    if (action === 'link_alias') {
+      const levels = rules.eventRules.ytLevels.map((l) => ({
+        ...l,
+        aliases: [...(l.aliases || [])].filter((a) => (normalizeYoutubeLevelKey(a) || a.toLowerCase()) !== targetKey),
+      }));
+      const target = levels.find((l) => l.id === targetLevelId || l.name.toLowerCase() === String(targetLevelId || '').trim().toLowerCase());
+      if (!target) return { ok: false, error: 'target_level_not_found' };
+      if ((normalizeYoutubeLevelKey(target.name) || target.name.toLowerCase()) !== targetKey) {
+        target.aliases.push(rawTrimmed);
+      }
+      nextRules = updateDonationRules(db, { ...rules, eventRules: { ...rules.eventRules, ytLevels: levels } }, baseCurrency, rates);
+    } else if (action === 'create_level') {
+      const levels = rules.eventRules.ytLevels.map((l) => ({
+        ...l,
+        aliases: [...(l.aliases || [])].filter((a) => (normalizeYoutubeLevelKey(a) || a.toLowerCase()) !== targetKey),
+      }));
+      const nl = newLevel && typeof newLevel === 'object' ? newLevel : {};
+      const exists = levels.find((l) => l.name.toLowerCase() === rawTrimmed.toLowerCase());
+      if (exists) {
+        exists.price = Math.max(0, Number(nl.price ?? exists.price) || 0);
+        exists.creditMode = nl.creditMode === 'follow_tiers' ? 'follow_tiers' : 'fixed_time';
+        exists.fixedMs = Math.max(0, Math.round(Number(nl.fixedMs ?? exists.fixedMs) || 0));
+      } else {
+        const slug = rawTrimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom';
+        levels.push({
+          id: `yt-${slug}-${crypto.randomBytes(2).toString('hex')}`,
+          name: rawTrimmed,
+          price: Math.max(0, Number(nl.price ?? 0) || 0),
+          creditMode: nl.creditMode === 'follow_tiers' ? 'follow_tiers' : 'fixed_time',
+          fixedMs: Math.max(0, Math.round(Number(nl.fixedMs ?? 600_000) || 0)),
+          isDefault: false,
+          aliases: [],
+        });
+      }
+      nextRules = updateDonationRules(db, { ...rules, eventRules: { ...rules.eventRules, ytLevels: levels } }, baseCurrency, rates);
+    } else if (action !== 'retroactive_only') {
+      return { ok: false, error: 'unknown_action' };
+    }
+
+    let updatedEvents = 0;
+    let grossDelta = 0;
+    let timerDeltaMs = 0;
+    let timerAppliedMs = 0;
+    let changed = false;
+    let snapshot = null;
+
+    if (retroactive) {
+      const finCfg = readFinanceConfig(db, baseCurrency, rates);
+      const rows = db.prepare(
+        `SELECT event_id, provider, gross_amount, credit_ms, payload_json
+         FROM donation_event
+         WHERE deleted_at_ms IS NULL AND provider IN ('yt-membership', 'yt-gift-member')`,
+      ).all();
+      const upd = db.prepare('UPDATE donation_event SET gross_amount = ?, credit_ms = ?, payload_json = ? WHERE event_id = ?');
+
+      for (const r of rows) {
+        const p = JSON.parse(r.payload_json || '{}');
+        if (p.matchStatus !== 'unmatched_fallback') continue;
+        const rk = normalizeYoutubeLevelKey(p.rawLevelName) || String(p.rawLevelName || '').trim().toLowerCase();
+        if (rk !== targetKey) continue;
+
+        const isGift = r.provider === 'yt-gift-member' || p.txType === 'yt_gift_member';
+        const kind = isGift ? 'yt_gift_member' : 'yt_member';
+        const units = Math.max(1, Math.trunc(Number(p.units || 1)));
+        const resolved = resolveTransactionCredit({ kind, levelName: p.rawLevelName || rawTrimmed, quantity: units }, nextRules, fxState);
+        const chanKey = resolveFinanceChannelKey(r.provider, kind);
+        const finSnap = calculateFinanceBreakdown(resolved.grossAmount, chanKey, finCfg);
+
+        const oldGross = Number(r.gross_amount) || 0;
+        const oldCredit = Number(r.credit_ms) || 0;
+        grossDelta += (resolved.grossAmount - oldGross);
+        if (resolved.creditMs > oldCredit) {
+          timerDeltaMs += (resolved.creditMs - oldCredit);
+        }
+
+        const nextPayload = {
+          ...p,
+          tierOrLevel: resolved.resolvedLabel,
+          matchedLevelId: resolved.matchedLevelId,
+          matchStatus: 'resolved_retroactive',
+          resolvedFromFallback: true,
+          message: isGift ? `Gifted ${units}× ${resolved.resolvedLabel}` : `YouTube Member (${resolved.resolvedLabel})`,
+          finance: finSnap,
+        };
+        upd.run(resolved.grossAmount, resolved.creditMs, JSON.stringify(nextPayload), r.event_id);
+        updatedEvents += 1;
+      }
+
+      if (applyTimerDelta && timerDeltaMs > 0) {
+        const curState = readState(db);
+        const applied = applyCommand(curState, { type: 'add', amountMs: timerDeltaMs }, now);
+        changed = applied.changed;
+        const resultState = changed ? applied.state : curState;
+        snapshot = snapshotOf(resultState, now);
+        const opId = `yt-resolve-${crypto.randomUUID()}`;
+        const hash = crypto.createHash('sha256').update(JSON.stringify({ targetKey, timerDeltaMs, updatedEvents })).digest('hex');
+        db.prepare(
+          `INSERT OR IGNORE INTO timer_operation (op_id, request_hash, command, applied_at_ms, result_revision, result_json)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(opId, hash, JSON.stringify({ type: 'add', amountMs: timerDeltaMs }), now, resultState.revision, JSON.stringify(snapshot));
+        if (changed) {
+          db.prepare('UPDATE timer_state SET state=?, deadline_ms=?, paused_remaining_ms=?, revision=?, updated_at_ms=? WHERE id=1')
+            .run(resultState.state, resultState.deadlineMs, resultState.pausedRemainingMs, resultState.revision, resultState.updatedAtMs);
+        }
+        timerAppliedMs = timerDeltaMs;
+      }
+    }
+
+    return {
+      ok: true,
+      action,
+      rules: nextRules,
+      updatedEvents,
+      grossDelta,
+      timerDeltaMs,
+      timerAppliedMs,
+      changed,
+      snapshot,
+      unmatched: readUnmatchedYoutubeLevels(db, nextRules),
+    };
+  });
 }
