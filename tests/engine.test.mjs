@@ -378,6 +378,218 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'E8-legacy-registry-upgrade-and-payout-currency',
+  async fn() {
+    // 1. Pre-v1.0.8 legacy registry.json (missing payoutCurrency) upgrades with ZERO re-onboarding
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-timer-legacy-'));
+    try {
+      fs.mkdirSync(path.join(legacyDir, 'profiles'), { recursive: true });
+      fs.writeFileSync(path.join(legacyDir, 'registry.json'), JSON.stringify({
+        version: 1,
+        activeProfileId: 'prof-legacy1',
+        appearance: 'dark',
+        closeToTray: false,
+        profiles: [{
+          id: 'prof-legacy1',
+          name: 'Legacy Streamer',
+          handle: '@legacy',
+          avatarColor: '#0071e3',
+          language: 'id',
+          baseCurrency: 'USD',
+          streamPlatforms: ['twitch'],
+          donationPlatforms: ['streamlabs'],
+          readToken: 'tok-legacy-read',
+          webhookSecret: '0123456789abcdef0123456789abcdef',
+          createdAtMs: 1700000000000,
+        }],
+      }, null, 2));
+
+      const legProc = spawn(process.execPath, ['engine/main.js'], {
+        cwd: process.cwd(),
+        env: { ...process.env, PORT: '0', STREAM_TIMER_DATA_DIR: legacyDir, FX_AUTO_FETCH: '0' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const legPort = await new Promise((resolve, reject) => {
+        let buf = '';
+        const t = setTimeout(() => reject(new Error('legacy engine timeout')), 8000);
+        legProc.stdout.on('data', (c) => {
+          buf += c.toString('utf8');
+          for (const l of buf.split('\n')) {
+            if (!l.trim()) continue;
+            try {
+              const obj = JSON.parse(l);
+              if (obj.event === 'listen' && obj.port) { clearTimeout(t); resolve(obj.port); return; }
+            } catch { /* wait */ }
+          }
+        });
+      });
+      try {
+        const legBoot = await req(`http://127.0.0.1:${legPort}`, '/api/app/bootstrap');
+        eq(legBoot.status, 200, 'legacy registry bootstrap 200');
+        eq(legBoot.data.needsOnboarding, false, 'legacy user NEVER forced to re-onboard');
+        eq(legBoot.data.activeProfile.name, 'Legacy Streamer', 'legacy profile name preserved');
+        eq(legBoot.data.activeProfile.payoutCurrency, null, 'legacy profile defaults payoutCurrency to null');
+      } finally {
+        legProc.kill();
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } finally {
+      fs.rmSync(legacyDir, { recursive: true, force: true });
+    }
+
+    // 2. Active USD profile with optional Home / Payout Currency = IDR
+    await req(eng.base, '/api/profiles/switch', { method: 'POST', body: { profileId: profUsdId } });
+    const setPay = await req(eng.base, `/api/profiles/${profUsdId}`, {
+      method: 'PATCH',
+      body: { payoutCurrency: 'IDR' },
+    });
+    eq(setPay.status, 200, 'PATCH payoutCurrency -> IDR succeeded');
+    eq(setPay.data.profile.payoutCurrency, 'IDR', 'profile.payoutCurrency is IDR');
+
+    const home = await req(eng.base, '/api/home');
+    eq(home.data.payoutCurrency, 'IDR', '/api/home reports payoutCurrency = IDR');
+    eq(home.data.lastArchivedSession.payout.currency, 'IDR', 'Home lastArchivedSession includes IDR payout');
+    assert(home.data.lastArchivedSession.payout.netAmount > 0, 'Archived USD session converted to IDR');
+
+    // Timer rules stay strictly in USD!
+    const rules = await req(eng.base, '/api/rules');
+    eq(rules.data.baseCurrency, 'USD', 'Timer rules remain strictly in operating USD');
+
+    const fin = await req(eng.base, '/api/finance/report?session=all');
+    eq(fin.data.payoutCurrency, 'IDR', 'Finance report returns payoutCurrency = IDR');
+    assert(fin.data.summary.payout.netAmount > 0, 'Finance summary includes IDR payout netAmount');
+
+    const csvExp = await req(eng.base, '/api/finance/export?session=all&format=csv');
+    eq(csvExp.status, 200, 'CSV export with payoutCurrency returns 200');
+    assert(csvExp.data.toString('utf8').includes('Est. Payout Net (IDR)'), 'CSV export includes IDR column');
+
+    // 3. .stbackup preserves payoutCurrency
+    const bak = await req(eng.base, `/api/profiles/${profUsdId}/backup`);
+    eq(bak.data.profile.payoutCurrency, 'IDR', '.stbackup exports payoutCurrency');
+    const imp = await req(eng.base, '/api/profiles/import', { method: 'POST', body: bak.data });
+    eq(imp.data.profile.payoutCurrency, 'IDR', '.stbackup import restores payoutCurrency');
+    await req(eng.base, `/api/profiles/${imp.data.profile.id}`, { method: 'DELETE' });
+    await req(eng.base, '/api/profiles/switch', { method: 'POST', body: { profileId: profUsdId } });
+
+    // 4. Clearing payoutCurrency back to null & auto-clear when baseCurrency == payoutCurrency
+    const clr = await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { payoutCurrency: '' } });
+    eq(clr.data.profile.payoutCurrency, null, 'Empty payoutCurrency clears back to null');
+    await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { payoutCurrency: 'IDR' } });
+    const same = await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { baseCurrency: 'IDR' } });
+    eq(same.data.profile.payoutCurrency, null, 'Setting baseCurrency to IDR auto-clears matching payoutCurrency');
+    await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { baseCurrency: 'USD', payoutCurrency: null } });
+
+    return { legacySafe: true, payoutVerified: true };
+  },
+});
+
+cases.push({
+  id: 'E8-legacy-registry-upgrade-and-payout-currency',
+  async fn() {
+    // 1. Pre-v1.0.8 legacy registry.json (missing payoutCurrency) upgrades with ZERO re-onboarding
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-timer-legacy-'));
+    try {
+      fs.mkdirSync(path.join(legacyDir, 'profiles'), { recursive: true });
+      fs.writeFileSync(path.join(legacyDir, 'registry.json'), JSON.stringify({
+        version: 1,
+        activeProfileId: 'prof-legacy1',
+        appearance: 'dark',
+        closeToTray: false,
+        profiles: [{
+          id: 'prof-legacy1',
+          name: 'Legacy Streamer',
+          handle: '@legacy',
+          avatarColor: '#0071e3',
+          language: 'id',
+          baseCurrency: 'USD',
+          streamPlatforms: ['twitch'],
+          donationPlatforms: ['streamlabs'],
+          readToken: 'tok-legacy-read',
+          webhookSecret: '0123456789abcdef0123456789abcdef',
+          createdAtMs: 1700000000000,
+        }],
+      }, null, 2));
+
+      const legProc = spawn(process.execPath, ['engine/main.js'], {
+        cwd: process.cwd(),
+        env: { ...process.env, PORT: '0', STREAM_TIMER_DATA_DIR: legacyDir, FX_AUTO_FETCH: '0' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const legPort = await new Promise((resolve, reject) => {
+        let buf = '';
+        const t = setTimeout(() => reject(new Error('legacy engine timeout')), 8000);
+        legProc.stdout.on('data', (c) => {
+          buf += c.toString('utf8');
+          for (const l of buf.split('\n')) {
+            if (!l.trim()) continue;
+            try {
+              const obj = JSON.parse(l);
+              if (obj.event === 'listen' && obj.port) { clearTimeout(t); resolve(obj.port); return; }
+            } catch { /* wait */ }
+          }
+        });
+      });
+      try {
+        const legBoot = await req(`http://127.0.0.1:${legPort}`, '/api/app/bootstrap');
+        eq(legBoot.status, 200, 'legacy registry bootstrap 200');
+        eq(legBoot.data.needsOnboarding, false, 'legacy user NEVER forced to re-onboard');
+        eq(legBoot.data.activeProfile.name, 'Legacy Streamer', 'legacy profile name preserved');
+        eq(legBoot.data.activeProfile.payoutCurrency, null, 'legacy profile defaults payoutCurrency to null');
+      } finally {
+        legProc.kill();
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } finally {
+      fs.rmSync(legacyDir, { recursive: true, force: true });
+    }
+
+    // 2. Active USD profile with optional Home / Payout Currency = IDR
+    await req(eng.base, '/api/profiles/switch', { method: 'POST', body: { profileId: profUsdId } });
+    const setPay = await req(eng.base, `/api/profiles/${profUsdId}`, {
+      method: 'PATCH',
+      body: { payoutCurrency: 'IDR' },
+    });
+    eq(setPay.status, 200, 'PATCH payoutCurrency -> IDR succeeded');
+    eq(setPay.data.profile.payoutCurrency, 'IDR', 'profile.payoutCurrency is IDR');
+
+    const home = await req(eng.base, '/api/home');
+    eq(home.data.payoutCurrency, 'IDR', '/api/home reports payoutCurrency = IDR');
+    eq(home.data.lastArchivedSession.payout.currency, 'IDR', 'Home lastArchivedSession includes IDR payout');
+    assert(home.data.lastArchivedSession.payout.netAmount > 0, 'Archived USD session converted to IDR');
+
+    // Timer rules stay strictly in USD!
+    const rules = await req(eng.base, '/api/rules');
+    eq(rules.data.baseCurrency, 'USD', 'Timer rules remain strictly in operating USD');
+
+    const fin = await req(eng.base, '/api/finance/report?session=all');
+    eq(fin.data.payoutCurrency, 'IDR', 'Finance report returns payoutCurrency = IDR');
+    assert(fin.data.summary.payout.netAmount > 0, 'Finance summary includes IDR payout netAmount');
+
+    const csvExp = await req(eng.base, '/api/finance/export?session=all&format=csv');
+    eq(csvExp.status, 200, 'CSV export with payoutCurrency returns 200');
+    assert(csvExp.data.toString('utf8').includes('Est. Payout Net (IDR)'), 'CSV export includes IDR column');
+
+    // 3. .stbackup preserves payoutCurrency
+    const bak = await req(eng.base, `/api/profiles/${profUsdId}/backup`);
+    eq(bak.data.profile.payoutCurrency, 'IDR', '.stbackup exports payoutCurrency');
+    const imp = await req(eng.base, '/api/profiles/import', { method: 'POST', body: bak.data });
+    eq(imp.data.profile.payoutCurrency, 'IDR', '.stbackup import restores payoutCurrency');
+    await req(eng.base, `/api/profiles/${imp.data.profile.id}`, { method: 'DELETE' });
+    await req(eng.base, '/api/profiles/switch', { method: 'POST', body: { profileId: profUsdId } });
+
+    // 4. Clearing payoutCurrency back to null & auto-clear when baseCurrency == payoutCurrency
+    const clr = await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { payoutCurrency: '' } });
+    eq(clr.data.profile.payoutCurrency, null, 'Empty payoutCurrency clears back to null');
+    await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { payoutCurrency: 'IDR' } });
+    const same = await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { baseCurrency: 'IDR' } });
+    eq(same.data.profile.payoutCurrency, null, 'Setting baseCurrency to IDR auto-clears matching payoutCurrency');
+    await req(eng.base, `/api/profiles/${profUsdId}`, { method: 'PATCH', body: { baseCurrency: 'USD', payoutCurrency: null } });
+
+    return { legacySafe: true, payoutVerified: true };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

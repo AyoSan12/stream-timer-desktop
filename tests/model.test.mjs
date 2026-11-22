@@ -327,7 +327,7 @@ cases.push({
 cases.push({
   id: 'M7-zero-em-dash-copy-guard',
   fn() {
-    const roots = ['ui', 'ui-boot', 'engine', 'src-tauri/src', 'README.md', 'scripts', '.github/workflows/release.yml'];
+    const roots = ['ui', 'ui-boot', 'engine', 'src-tauri/src', 'src-tauri/Cargo.toml', 'README.md', 'scripts', '.github/workflows/release.yml'];
     const hits = [];
     function walk(p) {
       if (!fs.existsSync(p)) return;
@@ -343,6 +343,48 @@ cases.push({
     for (const r of roots) walk(r);
     eq(hits.length, 0, `Zero em-dash characters allowed across app/repo (found: ${hits.join(', ')})`);
     return { scannedRoots: roots.length, emDashHits: 0 };
+  },
+});
+
+cases.push({
+  id: 'M8-payout-currency-finance-and-exports',
+  fn() {
+    const rates = { ...BASELINE_RATES_PER_USD, USD: 1, IDR: 16000 };
+    const usdFin = buildDefaultFinanceConfig('USD', rates);
+    const rows = [
+      { eventId: 'e1', provider: 'streamlabs', grossAmount: 100, currency: 'USD', creditMs: 3_600_000, appliedAtMs: 1000, payload: { gifterName: 'Sam', originalAmount: 100, originalCurrency: 'USD' } },
+      { eventId: 'e2', provider: 'chzzk', grossAmount: 50, currency: 'USD', creditMs: 3_600_000, appliedAtMs: 2000, payload: { gifterName: 'Minji', originalAmount: 67500, originalCurrency: 'KRW' } },
+    ];
+    const sessions = [{ sessionId: 'session-1', seqNum: 1, label: 'Global Stream #1', startedAtMs: 0, endedAtMs: null, createdAtMs: 0 }];
+
+    // 1. Payout Currency ON (USD -> IDR)
+    const rep = buildFinanceReport(rows, sessions, usdFin, { session: 'current' }, { payoutCurrency: 'IDR', ratesPerUsd: rates });
+    eq(rep.payoutCurrency, 'IDR', 'payoutCurrency set to IDR');
+    eq(rep.payoutRate, 16000, 'payoutRate = 16000');
+    eq(rep.summary.payout.grossAmount, 2_400_000, 'Gross $150 -> Rp 2.400.000');
+    eq(rep.summary.payout.netAmount, 2_188_800, 'Net $136.80 -> Rp 2.188.800');
+    eq(rep.sessions[0].payout.netAmount, 2_188_800, 'Session payout Net = Rp 2.188.800');
+    eq(rep.transactions[1].payoutNetAmount, 1_548_800, 'Tx e1 ($96.80) -> Rp 1.548.800');
+
+    const csv = exportFinanceCsv(rep);
+    assert(csv.includes('Est. Payout Net (IDR)'), 'CSV includes Est. Payout Net (IDR) column');
+    const json = JSON.parse(exportFinanceJson(rep));
+    eq(json.payoutCurrency, 'IDR', 'JSON includes payoutCurrency');
+    const md = exportFinanceMarkdown(rep);
+    assert(md.includes('Home / Payout Equivalent (IDR)'), 'Markdown includes payout equivalent');
+    const html = exportFinanceHtmlReport(rep);
+    assert(html.includes('Payout: <strong>IDR</strong>') && html.includes('≈'), 'HTML report includes Payout summary');
+    const xlsx = exportFinanceXlsx(rep);
+    eq(xlsx[0], 0x50, 'XLSX ZIP header P');
+    eq(xlsx[1], 0x4b, 'XLSX ZIP header K');
+
+    // 2. Payout Currency OFF (null) keeps exports clean
+    const repOff = buildFinanceReport(rows, sessions, usdFin, { session: 'current' }, { payoutCurrency: null, ratesPerUsd: rates });
+    eq(repOff.payoutCurrency, null, 'payoutCurrency null when off');
+    assert(!exportFinanceCsv(repOff).includes('Est. Payout Net'), 'CSV omits payout columns when off');
+    assert(!exportFinanceMarkdown(repOff).includes('Home / Payout Equivalent'), 'Markdown omits payout line when off');
+    assert(!exportFinanceHtmlReport(repOff).includes('Payout:'), 'HTML omits payout header when off');
+    return { netIdr: rep.summary.payout.netAmount };
   },
 });
 

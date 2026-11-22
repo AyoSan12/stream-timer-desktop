@@ -339,6 +339,7 @@
           <div class="rev-pulse-main">
             <div class="rev-pulse-lbl" data-i18n="home.activeNet">Active Cycle Net</div>
             <div id="homeActiveNet" class="rev-pulse-val">$0.00</div>
+            <div id="homeActivePayout" class="rev-pulse-payout" hidden></div>
             <div id="homeActiveSub" class="rev-pulse-sub">Gross $0.00 · 0 tx</div>
           </div>
           <div class="rev-pulse-prev">
@@ -346,7 +347,10 @@
               <div style="font-size:11px;color:var(--muted);" data-i18n="home.lastArchived">Last Archived Cycle</div>
               <strong id="homePrevLabel">-</strong>
             </div>
-            <strong id="homePrevNet" style="font-family:var(--font-mono);">-</strong>
+            <div style="text-align:right;">
+              <strong id="homePrevNet" style="font-family:var(--font-mono);">-</strong>
+              <div id="homePrevPayout" class="amt-sub" hidden></div>
+            </div>
           </div>
         </section>
 
@@ -677,15 +681,19 @@
             <span id="finScopeMeta" class="helper-text"></span>
           </div>
           <div class="btn-row">
+            <div id="finPayoutToggle" class="segmented" role="radiogroup" aria-label="Display currency" hidden>
+              <button id="finCurModeBase" type="button" class="seg-btn active" data-fin-cur-mode="base">USD</button>
+              <button id="finCurModePayout" type="button" class="seg-btn" data-fin-cur-mode="payout">IDR</button>
+            </div>
             <button id="finNewSessBtn" type="button" class="btn btn-pill btn-sm" data-i18n="fin.newSession">New Session (0)</button>
             <button id="finExportBtn" type="button" class="btn btn-primary btn-pill btn-sm" data-i18n="fin.exportReport">Export Report</button>
           </div>
         </div>
         <div class="fin-kpi-grid">
-          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.gross">Gross Revenue</span><span id="finKpiGross" class="fin-kpi-val">$0.00</span><span id="finKpiGrossSub" class="fin-kpi-sub">0 tx</span></div>
-          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.deductions">Total Deductions</span><span id="finKpiDeduct" class="fin-kpi-val text-neg">-$0.00</span><span id="finKpiDeductSub" class="fin-kpi-sub">0% cut</span></div>
-          <div class="fin-kpi-card is-net"><span class="fin-kpi-lbl" data-i18n="fin.net">Net Take-Home</span><span id="finKpiNet" class="fin-kpi-val">$0.00</span><span id="finKpiNetSub" class="fin-kpi-sub">100% kept</span></div>
-          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.avgNet">Avg Net / Tx</span><span id="finKpiAvg" class="fin-kpi-val">$0.00</span><span id="finKpiAvgSub" class="fin-kpi-sub">Avg Gross $0.00</span></div>
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.gross">Gross Revenue</span><span id="finKpiGross" class="fin-kpi-val">$0.00</span><span id="finKpiGrossPayout" class="fin-kpi-payout" hidden></span><span id="finKpiGrossSub" class="fin-kpi-sub">0 tx</span></div>
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.deductions">Total Deductions</span><span id="finKpiDeduct" class="fin-kpi-val text-neg">-$0.00</span><span id="finKpiDeductPayout" class="fin-kpi-payout" hidden></span><span id="finKpiDeductSub" class="fin-kpi-sub">0% cut</span></div>
+          <div class="fin-kpi-card is-net"><span class="fin-kpi-lbl" data-i18n="fin.net">Net Take-Home</span><span id="finKpiNet" class="fin-kpi-val">$0.00</span><span id="finKpiNetPayout" class="fin-kpi-payout" hidden></span><span id="finKpiNetSub" class="fin-kpi-sub">100% kept</span></div>
+          <div class="fin-kpi-card"><span class="fin-kpi-lbl" data-i18n="fin.avgNet">Avg Net / Tx</span><span id="finKpiAvg" class="fin-kpi-val">$0.00</span><span id="finKpiAvgPayout" class="fin-kpi-payout" hidden></span><span id="finKpiAvgSub" class="fin-kpi-sub">Avg Gross $0.00</span></div>
         </div>
         <div class="grid-finance-ov">
           <section class="card" aria-labelledby="finChanTitle">
@@ -1024,6 +1032,15 @@
               <div class="btn-row">
                 <button id="setBaseCurApplyBtn" type="button" class="btn btn-primary btn-pill btn-sm">Apply Currency</button>
               </div>
+              <hr class="hairline">
+              <div class="btn-row" style="justify-content:space-between;width:100%;">
+                <span style="font-size:12.5px;font-weight:600;color:var(--fg);">Home / Payout Currency (Optional)</span>
+                <span id="setPayoutCurBadge" class="pill">Off</span>
+              </div>
+              <label class="field">Display Local Equivalent In
+                <select id="setPayoutCurSelect"></select>
+              </label>
+              <p id="setPayoutCurHint" class="helper-text">Keep timer rules in your operating currency while viewing live local-currency equivalents in Home &amp; Finance.</p>
             </div>
           </section>
           <section class="card">
@@ -1141,9 +1158,12 @@
     <h2 id="editProfTitle">Edit Profile</h2>
     <div class="stack-sm">
       <label class="field">Profile Name<input id="edProfName" type="text" maxlength="60"></label>
-      <label class="field">Language<select id="edProfLang"></select></label>
-      <label class="field">Base Currency<select id="edProfCur"></select></label>
-      <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;"><input id="edProfResetPresets" type="checkbox"> Reset tier &amp; fee presets to new currency defaults</label>
+      <label class="field">Channel Handle (Optional)<input id="edProfHandle" type="text" maxlength="60" placeholder="@yourchannel"></label>
+      <div>
+        <span style="display:block;font-size:12px;font-weight:600;color:var(--fg-2);margin-bottom:6px;">Profile Accent</span>
+        <div id="edProfSwatches" class="ob-swatch-row"></div>
+      </div>
+      <p class="helper-text">Operating currency, payout currency, and language can be changed anytime in Settings.</p>
     </div>
     <menu>
       <button value="cancel" formnovalidate class="btn btn-pill btn-sm" data-i18n="common.cancel">Cancel</button>

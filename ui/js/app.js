@@ -64,9 +64,11 @@ let donoSelectMode = false;
 const donoSelected = new Set();
 let finData = null;
 let finScope = 'current';
+let finDisplayMode = 'base';
 let finExportScopeOverride = null;
 let finExportFromLedger = false;
 let finInspectEventId = '';
+let edProfAvatarColor = '#0071e3';
 let activeView = 'home';
 let activeTimerTab = 'controls';
 let obsRevealed = false;
@@ -200,6 +202,47 @@ function populateCurrencySelect(sel, defaultCode = 'USD', includeExtraFx = true)
   }
   sel.value = prev;
   if (!sel.value) sel.value = defaultCode;
+}
+
+function populatePayoutCurrencySelect(sel, baseCur = 'USD', payoutCur = null) {
+  if (!sel) return;
+  const base = String(baseCur || 'USD').trim().toUpperCase();
+  const target = (typeof payoutCur === 'string' && payoutCur.trim() && payoutCur.trim().toUpperCase() !== base)
+    ? payoutCur.trim().toUpperCase()
+    : '';
+  sel.replaceChildren();
+  const offOpt = document.createElement('option');
+  offOpt.value = '';
+  offOpt.textContent = 'Same as Operating Currency (Off)';
+  sel.append(offOpt);
+
+  const popSet = new Set(POPULAR_CURRENCIES.map(([c]) => c));
+  const grp1 = document.createElement('optgroup');
+  grp1.label = 'Popular Currencies';
+  for (const [code, label] of POPULAR_CURRENCIES) {
+    if (code === base) continue;
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = label;
+    grp1.append(o);
+  }
+  sel.append(grp1);
+
+  if (bootData?.fx?.ratesPerUsd) {
+    const extra = Object.keys(bootData.fx.ratesPerUsd).filter((c) => c !== base && !popSet.has(c)).sort();
+    if (extra.length) {
+      const grp2 = document.createElement('optgroup');
+      grp2.label = 'All 166 Supported Currencies';
+      for (const c of extra) {
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        grp2.append(o);
+      }
+      sel.append(grp2);
+    }
+  }
+  sel.value = target;
 }
 
 function populateLanguageSelect(sel, current = 'en') {
@@ -686,8 +729,11 @@ function renderProfileHeaderAndMenu() {
   }
   $('profileNameShort').textContent = activeProfile.name;
   $('popName').textContent = activeProfile.name;
-  $('popMeta').textContent = `${activeProfile.language.toUpperCase()} · ${activeProfile.baseCurrency} · ${activeProfile.streamPlatforms.join(' + ')}`;
-  $('homeProfilePill').textContent = `${activeProfile.name} · ${activeProfile.baseCurrency} · ${activeProfile.language.toUpperCase()}`;
+  const curTag = activeProfile.payoutCurrency
+    ? `${activeProfile.baseCurrency} → ${activeProfile.payoutCurrency}`
+    : activeProfile.baseCurrency;
+  $('popMeta').textContent = `${activeProfile.language.toUpperCase()} · ${curTag} · ${activeProfile.streamPlatforms.join(' + ')}`;
+  $('homeProfilePill').textContent = `${activeProfile.name} · ${curTag} · ${activeProfile.language.toUpperCase()}`;
 
   const list = $('popProfileList');
   list.replaceChildren();
@@ -722,6 +768,7 @@ async function hydrateActiveWorkspace() {
   }
 
   activeProfile = bootData.activeProfile;
+  if (!activeProfile.payoutCurrency) finDisplayMode = 'base';
   setBaseCurrency(activeProfile.baseCurrency);
   setLanguage(activeProfile.language);
 
@@ -735,6 +782,7 @@ async function hydrateActiveWorkspace() {
   populateCurrencySelect($('simSlCur'), activeProfile.baseCurrency, true);
   populateCurrencySelect($('simWhCur'), activeProfile.baseCurrency, true);
   populateCurrencySelect($('setBaseCurSelect'), activeProfile.baseCurrency, false);
+  populatePayoutCurrencySelect($('setPayoutCurSelect'), activeProfile.baseCurrency, activeProfile.payoutCurrency);
   populateLanguageSelect($('setLangSelect'), activeProfile.language);
   $('hkToggle').value = bootData.hotkeys?.toggle || 'CommandOrControl+Shift+Space';
   $('hkAdd1').value = bootData.hotkeys?.add1m || 'CommandOrControl+Shift+Up';
@@ -895,13 +943,37 @@ async function loadHome() {
 
   // Revenue Pulse
   $('homeActiveNet').textContent = fmtMoney(h.activeIncome.netAmount, cur);
+  const activePayEl = $('homeActivePayout');
+  if (activePayEl) {
+    if (h.activeIncome?.payout) {
+      activePayEl.textContent = `≈ ${fmtMoney(h.activeIncome.payout.netAmount, h.activeIncome.payout.currency)}`;
+      activePayEl.hidden = false;
+    } else {
+      activePayEl.textContent = '';
+      activePayEl.hidden = true;
+    }
+  }
   $('homeActiveSub').textContent = `Gross ${fmtMoney(h.activeIncome.grossAmount, cur)} · ${h.activeIncome.txCount} tx · ${h.activeIncome.effectiveFeePct}% cut`;
+  const prevPayEl = $('homePrevPayout');
   if (h.lastArchivedSession) {
     $('homePrevLabel').textContent = h.lastArchivedSession.label;
     $('homePrevNet').textContent = fmtMoney(h.lastArchivedSession.netAmount, cur);
+    if (prevPayEl) {
+      if (h.lastArchivedSession.payout) {
+        prevPayEl.textContent = `≈ ${fmtMoney(h.lastArchivedSession.payout.netAmount, h.lastArchivedSession.payout.currency)}`;
+        prevPayEl.hidden = false;
+      } else {
+        prevPayEl.textContent = '';
+        prevPayEl.hidden = true;
+      }
+    }
   } else {
     $('homePrevLabel').textContent = 'No archived cycle yet';
     $('homePrevNet').textContent = '-';
+    if (prevPayEl) {
+      prevPayEl.textContent = '';
+      prevPayEl.hidden = true;
+    }
   }
 
   // Latest 4 activity cards
@@ -1067,28 +1139,67 @@ async function loadFinance() {
   renderFinanceFees(ov.config);
 }
 
+function pairMoney(baseAmt, payoutAmt, baseCur, payoutCur, neg = false) {
+  const prefix = neg ? '-' : '';
+  if (!payoutCur || payoutAmt === null || payoutAmt === undefined) {
+    return { main: `${prefix}${fmtMoney(baseAmt, baseCur)}`, sub: '' };
+  }
+  if (finDisplayMode === 'payout') {
+    return { main: `${prefix}${fmtMoney(payoutAmt, payoutCur)}`, sub: `Base ${prefix}${fmtMoney(baseAmt, baseCur)}` };
+  }
+  return { main: `${prefix}${fmtMoney(baseAmt, baseCur)}`, sub: `≈ ${prefix}${fmtMoney(payoutAmt, payoutCur)}` };
+}
+
 function renderFinanceOverview(ov) {
   const cur = ov.baseCurrency;
   const s = ov.summary;
+  const sp = s.payout;
+  const pCur = (ov.payoutCurrency && sp) ? ov.payoutCurrency : null;
+  if (!pCur) finDisplayMode = 'base';
+
+  const toggle = $('finPayoutToggle');
+  if (toggle) {
+    toggle.hidden = !pCur;
+    if (pCur) {
+      $('finCurModeBase').textContent = cur;
+      $('finCurModePayout').textContent = pCur;
+      $('finCurModeBase').classList.toggle('active', finDisplayMode === 'base');
+      $('finCurModePayout').classList.toggle('active', finDisplayMode === 'payout');
+    }
+  }
+
   $('finScopeMeta').textContent = ov.scope.sessionId === 'all'
     ? `All ${ov.sessions.length} cycles combined`
     : (ov.scope.isActive ? `Active · Started ${fmtDateTime(ov.scope.startedAtMs)}` : `Archived · ${fmtDateTime(ov.scope.startedAtMs)} → ${fmtDateTime(ov.scope.endedAtMs)}`);
 
-  $('finKpiGross').textContent = fmtMoney(s.grossAmount, cur);
+  const setKpi = (valId, payId, baseAmt, payAmt, neg = false) => {
+    const p = pairMoney(baseAmt, payAmt, cur, pCur, neg);
+    $(valId).textContent = p.main;
+    const payEl = $(payId);
+    if (payEl) {
+      payEl.textContent = p.sub;
+      payEl.hidden = !p.sub;
+    }
+  };
+  setKpi('finKpiGross', 'finKpiGrossPayout', s.grossAmount, sp?.grossAmount, false);
   $('finKpiGrossSub').textContent = `${s.txCount} tx · 100% gross`;
-  $('finKpiDeduct').textContent = `-${fmtMoney(s.totalDeductions, cur)}`;
+  setKpi('finKpiDeduct', 'finKpiDeductPayout', s.totalDeductions, sp?.totalDeductions, true);
   $('finKpiDeductSub').textContent = `${s.effectiveFeePct}% effective cut`;
-  $('finKpiNet').textContent = fmtMoney(s.netAmount, cur);
+  setKpi('finKpiNet', 'finKpiNetPayout', s.netAmount, sp?.netAmount, false);
   $('finKpiNetSub').textContent = `${s.takeHomePct}% take-home`;
-  $('finKpiAvg').textContent = fmtMoney(s.avgNet, cur);
-  $('finKpiAvgSub').textContent = `Avg Gross ${fmtMoney(s.avgGross, cur)}`;
+  setKpi('finKpiAvg', 'finKpiAvgPayout', s.avgNet, sp?.avgNet, false);
+  $('finKpiAvgSub').textContent = `Avg Gross ${pCur && finDisplayMode === 'payout' ? fmtMoney(sp.avgGross, pCur) : fmtMoney(s.avgGross, cur)}`;
 
   $('finCutBadge').textContent = `${s.effectiveFeePct}% cut`;
-  $('finBrkPlat').textContent = `-${fmtMoney(s.platformFee, cur)}`;
-  $('finBrkPay').textContent = `-${fmtMoney(s.paymentFee, cur)}`;
-  $('finBrkFix').textContent = `-${fmtMoney(s.fixedFee, cur)}`;
-  $('finBrkTax').textContent = `-${fmtMoney(s.taxReserve, cur)}`;
-  $('finBrkNet').textContent = fmtMoney(s.netAmount, cur);
+  const usePayout = Boolean(pCur && finDisplayMode === 'payout');
+  const dCur = usePayout ? pCur : cur;
+  const ds = usePayout ? sp : s;
+  $('finBrkPlat').textContent = `-${fmtMoney(ds.platformFee, dCur)}`;
+  $('finBrkPay').textContent = `-${fmtMoney(ds.paymentFee, dCur)}`;
+  $('finBrkFix').textContent = `-${fmtMoney(ds.fixedFee, dCur)}`;
+  $('finBrkTax').textContent = `-${fmtMoney(ds.taxReserve, dCur)}`;
+  const netPair = pairMoney(s.netAmount, sp?.netAmount, cur, pCur, false);
+  $('finBrkNet').textContent = netPair.sub ? `${netPair.main} (${netPair.sub})` : netPair.main;
 
   if (s.grossAmount > 0) {
     $('finBarNet').style.width = `${(s.netAmount / s.grossAmount) * 100}%`;
@@ -1109,13 +1220,16 @@ function renderFinanceOverview(ov) {
     return;
   }
   for (const ch of ov.byChannel) {
+    const chGross = pairMoney(ch.grossAmount, ch.payout?.grossAmount, cur, pCur, false);
+    const chDed = pairMoney(ch.totalDeductions, ch.payout?.totalDeductions, cur, pCur, true);
+    const chNet = pairMoney(ch.netAmount, ch.payout?.netAmount, cur, pCur, false);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${ch.channelLabel}</strong><span class="amt-sub">${ch.platformFeePct}% plat · ${ch.paymentFeePct}% pay</span></td>
       <td class="num">${ch.txCount}</td>
-      <td class="num">${fmtMoney(ch.grossAmount, cur)}</td>
-      <td class="num text-neg">-${fmtMoney(ch.totalDeductions, cur)}<span class="amt-sub">${ch.effectiveFeePct}%</span></td>
-      <td class="num"><strong>${fmtMoney(ch.netAmount, cur)}</strong></td>
+      <td class="num">${chGross.main}</td>
+      <td class="num text-neg">${chDed.main}<span class="amt-sub">${ch.effectiveFeePct}%</span></td>
+      <td class="num"><strong>${chNet.main}</strong>${chNet.sub ? `<span class="amt-sub">${chNet.sub}</span>` : ''}</td>
     `;
     body.append(tr);
   }
@@ -1124,7 +1238,12 @@ function renderFinanceOverview(ov) {
 function renderFinanceLedger(ld) {
   const cur = ld.baseCurrency;
   const s = ld.summary;
-  $('finLdSum').innerHTML = `<span>Showing ${ld.transactions.length} of ${ld.totalMatched} (${ld.scope.label})</span><span>Gross ${fmtMoney(s.grossAmount, cur)} · Cut -${fmtMoney(s.totalDeductions, cur)} (${s.effectiveFeePct}%) · Net ${fmtMoney(s.netAmount, cur)}</span>`;
+  const sp = s.payout;
+  const pCur = (ld.payoutCurrency && sp) ? ld.payoutCurrency : null;
+  const sumGross = pairMoney(s.grossAmount, sp?.grossAmount, cur, pCur, false);
+  const sumDed = pairMoney(s.totalDeductions, sp?.totalDeductions, cur, pCur, true);
+  const sumNet = pairMoney(s.netAmount, sp?.netAmount, cur, pCur, false);
+  $('finLdSum').innerHTML = `<span>Showing ${ld.transactions.length} of ${ld.totalMatched} (${ld.scope.label})</span><span>Gross ${sumGross.main} · Cut ${sumDed.main} (${s.effectiveFeePct}%) · Net ${sumNet.main}${sumNet.sub ? ` (${sumNet.sub})` : ''}</span>`;
   const body = $('finLdBody');
   body.replaceChildren();
   if (!ld.transactions.length) {
@@ -1136,13 +1255,16 @@ function renderFinanceLedger(ld) {
     tr.dataset.click = '1';
     tr.dataset.txId = tx.eventId;
     const orig = tx.originalCurrency !== cur ? `<span class="amt-sub">${tx.originalAmount} ${tx.originalCurrency}</span>` : '';
+    const txGross = pairMoney(tx.grossAmount, tx.payoutGrossAmount, cur, pCur, false);
+    const txDed = pairMoney(tx.totalDeductions, tx.payoutDeductions, cur, pCur, true);
+    const txNet = pairMoney(tx.netAmount, tx.payoutNetAmount, cur, pCur, false);
     tr.innerHTML = `
       <td>${fmtDateTime(tx.appliedAtMs)}<span class="amt-sub">${tx.sessionLabel}</span></td>
       <td><strong>${tx.gifterName}</strong><span class="amt-sub" style="font-family:var(--font-mono);">${tx.eventId}</span></td>
       <td><span class="pill">${tx.channelLabel}</span></td>
-      <td class="num">${fmtMoney(tx.grossAmount, cur)}${orig}</td>
-      <td class="num text-neg">-${fmtMoney(tx.totalDeductions, cur)}<span class="amt-sub">${tx.effectiveFeePct}%</span></td>
-      <td class="num"><strong>${fmtMoney(tx.netAmount, cur)}</strong></td>
+      <td class="num">${txGross.main}${orig}</td>
+      <td class="num text-neg">${txDed.main}<span class="amt-sub">${tx.effectiveFeePct}%</span></td>
+      <td class="num"><strong>${txNet.main}</strong>${txNet.sub ? `<span class="amt-sub">${txNet.sub}</span>` : ''}</td>
       <td class="num"><button type="button" class="btn btn-link" data-inspect-tx="${tx.eventId}">Inspect</button></td>
     `;
     body.append(tr);
@@ -1151,10 +1273,14 @@ function renderFinanceLedger(ld) {
 
 function renderFinanceSessions(ov) {
   const cur = ov.baseCurrency;
+  const pCur = (ov.payoutCurrency && ov.summary?.payout) ? ov.payoutCurrency : null;
   $('finSessCount').textContent = `${ov.sessions.length} session${ov.sessions.length === 1 ? '' : 's'}`;
   const list = $('finSessList');
   list.replaceChildren();
   for (const s of ov.sessions) {
+    const sGross = pairMoney(s.grossAmount, s.payout?.grossAmount, cur, pCur, false);
+    const sDed = pairMoney(s.totalDeductions, s.payout?.totalDeductions, cur, pCur, true);
+    const sNet = pairMoney(s.netAmount, s.payout?.netAmount, cur, pCur, false);
     const card = document.createElement('div');
     card.className = 'card';
     card.style.padding = '12px 14px';
@@ -1165,9 +1291,9 @@ function renderFinanceSessions(ov) {
         <span class="pill ${s.isActive ? 'pill-ok' : ''}">${s.isActive ? 'Active' : 'Archived'}</span>
       </div>
       <div class="row-3" style="margin-bottom:8px;font-family:var(--font-mono);font-size:12.5px;">
-        <div><span class="amt-sub">Gross</span><strong>${fmtMoney(s.grossAmount, cur)}</strong></div>
-        <div><span class="amt-sub">Deductions</span><strong class="text-neg">-${fmtMoney(s.totalDeductions, cur)}</strong></div>
-        <div><span class="amt-sub">Net (${s.txCount} tx)</span><strong>${fmtMoney(s.netAmount, cur)}</strong></div>
+        <div><span class="amt-sub">Gross</span><strong>${sGross.main}</strong></div>
+        <div><span class="amt-sub">Deductions</span><strong class="text-neg">${sDed.main}</strong></div>
+        <div><span class="amt-sub">Net (${s.txCount} tx)</span><strong>${sNet.main}</strong>${sNet.sub ? `<span class="amt-sub">${sNet.sub}</span>` : ''}</div>
       </div>
       <div class="btn-row">
         <button type="button" class="btn btn-sm" data-open-sess="${s.sessionId}">Open in Ledger</button>
@@ -1249,6 +1375,7 @@ function openTxInspector(eventId) {
       <div class="fin-deduct-row"><span>Fixed Fee</span><span class="text-neg">-${fmtMoney(tx.fixedFee, cur)}</span></div>
       <div class="fin-deduct-row"><span>Tax Reserve (${tx.taxReservePct}%)</span><span class="text-neg">-${fmtMoney(tx.taxReserve, cur)}</span></div>
       <div class="fin-deduct-row is-tot"><span>Net Take-Home</span><strong>${fmtMoney(tx.netAmount, cur)}</strong></div>
+      ${tx.payoutCurrency && tx.payoutNetAmount !== null ? `<div class="fin-deduct-row"><span>Estimated Payout (${tx.payoutCurrency})</span><strong>≈ ${fmtMoney(tx.payoutNetAmount, tx.payoutCurrency)}</strong></div>` : ''}
       <div style="margin-top:6px;font-size:11px;color:var(--muted);">${tx.formulaText}</div>
     </div>
   `;
@@ -1949,6 +2076,20 @@ function renderFxRatesList() {
   if ($('setBaseCurSelect')) $('setBaseCurSelect').value = baseCur;
   if ($('setBaseCurBadge')) $('setBaseCurBadge').textContent = baseCur;
   const rates = fx.ratesPerUsd || {};
+  const payoutCur = activeProfile?.payoutCurrency || null;
+  if ($('setPayoutCurSelect')) $('setPayoutCurSelect').value = payoutCur || '';
+  if ($('setPayoutCurBadge')) {
+    $('setPayoutCurBadge').textContent = payoutCur ? `${payoutCur} Live` : 'Off';
+    $('setPayoutCurBadge').className = payoutCur ? 'pill pill-ok' : 'pill';
+  }
+  if ($('setPayoutCurHint')) {
+    if (payoutCur) {
+      const rate = (Number(rates[payoutCur]) || 1) / (Number(rates[baseCur]) || 1);
+      $('setPayoutCurHint').textContent = `Live conversion active: 1 ${baseCur} = ${fmtMoney(rate, payoutCur)} (Timer rules stay in ${baseCur}; Home, Finance & exports show ${payoutCur} equivalents).`;
+    } else {
+      $('setPayoutCurHint').textContent = 'Keep timer rules in your operating currency while viewing live local-currency equivalents in Home & Finance.';
+    }
+  }
   const count = Object.keys(rates).length;
   $('fxAutoChk').checked = fx.autoUpdate !== false;
   $('fxIntSel').value = String(fx.intervalHours || 6);
@@ -2117,9 +2258,26 @@ function bindAllEvents() {
     toggleProfilePopover(false);
     if (!activeProfile) return;
     $('edProfName').value = activeProfile.name;
-    populateLanguageSelect($('edProfLang'), activeProfile.language);
-    populateCurrencySelect($('edProfCur'), activeProfile.baseCurrency, false);
-    $('edProfResetPresets').checked = false;
+    $('edProfHandle').value = activeProfile.handle || '';
+    edProfAvatarColor = activeProfile.avatarColor || '#0071e3';
+    const renderEditSwatches = () => {
+      const box = $('edProfSwatches');
+      if (!box) return;
+      box.replaceChildren();
+      for (const hex of AVATAR_COLORS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `ob-swatch${edProfAvatarColor === hex ? ' is-selected' : ''}`;
+        b.style.backgroundColor = hex;
+        b.setAttribute('aria-label', `Profile color ${hex}`);
+        b.addEventListener('click', () => {
+          edProfAvatarColor = hex;
+          renderEditSwatches();
+        });
+        box.append(b);
+      }
+    };
+    renderEditSwatches();
     $('editProfileDialog').showModal();
   });
   $('editProfileDialog').addEventListener('close', async () => {
@@ -2128,9 +2286,8 @@ function bindAllEvents() {
       method: 'PATCH',
       body: {
         name: $('edProfName').value,
-        language: $('edProfLang').value,
-        baseCurrency: $('edProfCur').value,
-        resetCurrencyPresets: $('edProfResetPresets').checked,
+        handle: $('edProfHandle').value,
+        avatarColor: edProfAvatarColor,
       },
     });
     if (r.ok) { await hydrateActiveWorkspace(); showToast('Profile updated'); }
@@ -2268,6 +2425,16 @@ function bindAllEvents() {
   });
 
   // Finance
+  document.querySelectorAll('[data-fin-cur-mode]').forEach((b) => {
+    b.addEventListener('click', () => {
+      finDisplayMode = b.dataset.finCurMode === 'payout' ? 'payout' : 'base';
+      if (finData) {
+        renderFinanceOverview(finData.overview);
+        renderFinanceLedger(finData.ledger);
+        renderFinanceSessions(finData.overview);
+      }
+    });
+  });
   $('finScopeSel').addEventListener('change', () => { finScope = $('finScopeSel').value; $('finLdSess').value = finScope; loadFinance(); });
   $('finNewSessBtn').addEventListener('click', () => { document.querySelector('[data-fin-tab="sessions"]').click(); });
   $('finStartCycleBtn').addEventListener('click', async () => {
@@ -2583,6 +2750,28 @@ function bindAllEvents() {
       if ($('setBaseCurResetChk')) $('setBaseCurResetChk').checked = false;
       await hydrateActiveWorkspace();
       showToast(`Operating currency updated to ${nextCur}`);
+    }
+  });
+  $('setPayoutCurSelect')?.addEventListener('change', async () => {
+    if (!activeProfile) return;
+    const nextPay = $('setPayoutCurSelect').value || null;
+    const r = await api(`/api/profiles/${encodeURIComponent(activeProfile.id)}`, {
+      method: 'PATCH',
+      body: { payoutCurrency: nextPay },
+    });
+    if (r.ok) {
+      activeProfile = r.data.profile;
+      if (bootData) {
+        bootData.activeProfile = r.data.profile;
+        if (r.data.app?.profiles) bootData.profiles = r.data.app.profiles;
+      }
+      if (!activeProfile.payoutCurrency) finDisplayMode = 'base';
+      renderProfileHeaderAndMenu();
+      renderFxRatesList();
+      await Promise.all([loadHome(), loadFinance()]);
+      showToast(activeProfile.payoutCurrency
+        ? `Home / Payout currency set to ${activeProfile.payoutCurrency}`
+        : 'Home / Payout currency turned off');
     }
   });
   $('fxSaveBtn').addEventListener('click', async () => {

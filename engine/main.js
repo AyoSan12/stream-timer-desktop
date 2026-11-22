@@ -597,10 +597,18 @@ const server = http.createServer(async (req, res) => {
       const hist = readDonationHistory(ctx.db, { limit: 5 });
       const rules = readDonationRules(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd);
       const unmatchedYoutubeLevels = readUnmatchedYoutubeLevels(ctx.db, rules);
-      const finCur = readFinanceReport(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd, { session: 'current', limit: 5 });
+      const finCur = readFinanceReport(
+        ctx.db,
+        ctx.profile.baseCurrency,
+        ctx.fx.ratesPerUsd,
+        { session: 'current', limit: 5 },
+        { payoutCurrency: ctx.profile.payoutCurrency || null },
+      );
       const prevArchived = finCur.sessions.find((s) => !s.isActive) || null;
       return sendJson(res, 200, {
         profile: ctx.profile,
+        payoutCurrency: finCur.payoutCurrency,
+        payoutRate: finCur.payoutRate,
         snapshot: snap,
         overlay: ov,
         clients: clientStats(),
@@ -988,12 +996,28 @@ const server = http.createServer(async (req, res) => {
 
     // 15. Finance & Revenue Accounting (Dynamic Base Currency + 5-Format Exports)
     if (req.method === 'GET' && p === '/api/finance/report') {
-      return sendJson(res, 200, readFinanceReport(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd, parseFinanceFilters(url)));
+      return sendJson(
+        res,
+        200,
+        readFinanceReport(
+          ctx.db,
+          ctx.profile.baseCurrency,
+          ctx.fx.ratesPerUsd,
+          parseFinanceFilters(url),
+          { payoutCurrency: ctx.profile.payoutCurrency || null },
+        ),
+      );
     }
     if (req.method === 'GET' && p === '/api/finance/export') {
       const filters = parseFinanceFilters(url);
       filters.limit = 10_000;
-      const report = readFinanceReport(ctx.db, ctx.profile.baseCurrency, ctx.fx.ratesPerUsd, filters);
+      const report = readFinanceReport(
+        ctx.db,
+        ctx.profile.baseCurrency,
+        ctx.fx.ratesPerUsd,
+        filters,
+        { payoutCurrency: ctx.profile.payoutCurrency || null },
+      );
       const fmt = String(url.searchParams.get('format') || 'csv').toLowerCase();
       const slug = String(report.scope.label || 'report').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 36) || 'report';
       const stamp = new Date().toISOString().slice(0, 10);

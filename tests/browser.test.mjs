@@ -428,6 +428,152 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'UI5-payout-currency-dual-display-and-clean-edit-profile',
+  async fn() {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 740 }, colorScheme: 'dark' });
+    const page = await ctx.newPage();
+    await page.goto(`${eng.base}/?desktop=1&theme=dark`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#appRoot:not([hidden])', { timeout: 6000 });
+    await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
+
+    // Switch to Alex Global (seeded USD profile with live revenue)
+    await page.locator('#profileMenuBtn').click();
+    await page.locator('#popProfileList button', { hasText: 'Alex Global' }).click();
+    await page.waitForTimeout(450);
+
+    // 1. Settings -> Currency & FX: enable optional Home / Payout Currency = IDR
+    await page.locator('#nav-settings').click();
+    await page.locator('[data-set-tab="currency"]').click();
+    await page.waitForTimeout(150);
+    eq(await page.locator('#setPayoutCurSelect').inputValue(), '', 'Payout currency defaults to Off');
+    await page.selectOption('#setPayoutCurSelect', 'IDR');
+    await page.waitForTimeout(350);
+    eq(await page.locator('#setPayoutCurBadge').textContent(), 'IDR Live', 'Badge updates to IDR Live');
+    assert((await page.locator('#setPayoutCurHint').textContent()).includes('1 USD ='), 'Live conversion rate hint shown');
+    await page.screenshot({ path: path.join(evDir, '19-settings-payout-currency-dark.png') });
+
+    // 2. Home -> Revenue Pulse shows live ≈ Rp equivalent
+    await page.locator('#nav-home').click();
+    await page.waitForTimeout(250);
+    assert(await page.locator('#homeActivePayout').isVisible(), 'Home Revenue Pulse shows live IDR equivalent');
+    assert((await page.locator('#homeActivePayout').textContent()).includes('≈'), 'Home equivalent prefixed with ≈');
+    assert((await page.locator('#homeProfilePill').textContent()).includes('USD → IDR'), 'Profile pill shows USD → IDR');
+
+    // 3. Finance -> Dual display & USD | IDR pill toggle
+    await page.locator('#nav-finance').click();
+    await page.waitForTimeout(250);
+    assert(await page.locator('#finPayoutToggle').isVisible(), 'Finance USD | IDR toggle visible');
+    assert((await page.locator('#finKpiNetPayout').textContent()).includes('≈'), 'Finance Net KPI shows ≈ IDR subtitle');
+    await page.locator('#finCurModePayout').click();
+    await page.waitForTimeout(150);
+    assert((await page.locator('#finKpiNetPayout').textContent()).includes('Base $'), 'Clicking IDR toggle flips primary to IDR with Base $ subtitle');
+    await page.screenshot({ path: path.join(evDir, '20-finance-payout-currency-dark.png') });
+
+    // 4. Clean Identity-Only Edit Profile modal (no duplicate Currency / Language!)
+    await page.locator('#profileMenuBtn').click();
+    await page.locator('#popEditBtn').click();
+    await page.waitForTimeout(200);
+    eq(await page.locator('#edProfCur').count(), 0, 'Duplicate Base Currency removed from Edit Profile');
+    eq(await page.locator('#edProfLang').count(), 0, 'Duplicate Language removed from Edit Profile');
+    assert(await page.locator('#edProfHandle').isVisible(), 'Channel Handle editable in Edit Profile');
+    assert(await page.locator('#edProfSwatches button').count() >= 6, 'Avatar color swatches available in Edit Profile');
+    await page.screenshot({ path: path.join(evDir, '21-edit-profile-identity-dark.png') });
+    await page.fill('#edProfHandle', '@alexglobal');
+    await page.locator('#edProfSaveBtn').click();
+    await page.waitForTimeout(350);
+
+    // 5. Accessibility check across all controls
+    const a11y = await page.evaluate(ACCESSIBILITY_PROBE);
+    eq(a11y.unlabelled.length, 0, `Unlabelled controls: ${a11y.unlabelled.join(', ')}`);
+
+    // 6. Turning Payout Currency back Off hides dual UI cleanly
+    await page.locator('#nav-settings').click();
+    await page.locator('[data-set-tab="currency"]').click();
+    await page.selectOption('#setPayoutCurSelect', '');
+    await page.waitForTimeout(300);
+    await page.locator('#nav-finance').click();
+    await page.waitForTimeout(200);
+    assert(await page.locator('#finPayoutToggle').isHidden(), 'Finance toggle hides cleanly when Payout Currency is Off');
+
+    await ctx.close();
+    return { payoutUiOk: true, identityOnlyEditProfile: true };
+  },
+});
+
+cases.push({
+  id: 'UI5-payout-currency-dual-display-and-clean-edit-profile',
+  async fn() {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 740 }, colorScheme: 'dark' });
+    const page = await ctx.newPage();
+    await page.goto(`${eng.base}/?desktop=1&theme=dark`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#appRoot:not([hidden])', { timeout: 6000 });
+    await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
+
+    // Switch to Alex Global (seeded USD profile with live revenue)
+    await page.locator('#profileMenuBtn').click();
+    await page.locator('#popProfileList button', { hasText: 'Alex Global' }).click();
+    await page.waitForTimeout(450);
+
+    // 1. Settings -> Currency & FX: enable optional Home / Payout Currency = IDR
+    await page.locator('#nav-settings').click();
+    await page.locator('[data-set-tab="currency"]').click();
+    await page.waitForTimeout(150);
+    eq(await page.locator('#setPayoutCurSelect').inputValue(), '', 'Payout currency defaults to Off');
+    await page.selectOption('#setPayoutCurSelect', 'IDR');
+    await page.waitForTimeout(350);
+    eq(await page.locator('#setPayoutCurBadge').textContent(), 'IDR Live', 'Badge updates to IDR Live');
+    assert((await page.locator('#setPayoutCurHint').textContent()).includes('1 USD ='), 'Live conversion rate hint shown');
+    await page.screenshot({ path: path.join(evDir, '19-settings-payout-currency-dark.png') });
+
+    // 2. Home -> Revenue Pulse shows live ≈ Rp equivalent
+    await page.locator('#nav-home').click();
+    await page.waitForTimeout(250);
+    assert(await page.locator('#homeActivePayout').isVisible(), 'Home Revenue Pulse shows live IDR equivalent');
+    assert((await page.locator('#homeActivePayout').textContent()).includes('≈'), 'Home equivalent prefixed with ≈');
+    assert((await page.locator('#homeProfilePill').textContent()).includes('USD → IDR'), 'Profile pill shows USD → IDR');
+
+    // 3. Finance -> Dual display & USD | IDR pill toggle
+    await page.locator('#nav-finance').click();
+    await page.waitForTimeout(250);
+    assert(await page.locator('#finPayoutToggle').isVisible(), 'Finance USD | IDR toggle visible');
+    assert((await page.locator('#finKpiNetPayout').textContent()).includes('≈'), 'Finance Net KPI shows ≈ IDR subtitle');
+    await page.locator('#finCurModePayout').click();
+    await page.waitForTimeout(150);
+    assert((await page.locator('#finKpiNetPayout').textContent()).includes('Base $'), 'Clicking IDR toggle flips primary to IDR with Base $ subtitle');
+    await page.screenshot({ path: path.join(evDir, '20-finance-payout-currency-dark.png') });
+
+    // 4. Clean Identity-Only Edit Profile modal (no duplicate Currency / Language!)
+    await page.locator('#profileMenuBtn').click();
+    await page.locator('#popEditBtn').click();
+    await page.waitForTimeout(200);
+    eq(await page.locator('#edProfCur').count(), 0, 'Duplicate Base Currency removed from Edit Profile');
+    eq(await page.locator('#edProfLang').count(), 0, 'Duplicate Language removed from Edit Profile');
+    assert(await page.locator('#edProfHandle').isVisible(), 'Channel Handle editable in Edit Profile');
+    assert(await page.locator('#edProfSwatches button').count() >= 6, 'Avatar color swatches available in Edit Profile');
+    await page.screenshot({ path: path.join(evDir, '21-edit-profile-identity-dark.png') });
+    await page.fill('#edProfHandle', '@alexglobal');
+    await page.locator('#edProfSaveBtn').click();
+    await page.waitForTimeout(350);
+
+    // 5. Accessibility check across all controls
+    const a11y = await page.evaluate(ACCESSIBILITY_PROBE);
+    eq(a11y.unlabelled.length, 0, `Unlabelled controls: ${a11y.unlabelled.join(', ')}`);
+
+    // 6. Turning Payout Currency back Off hides dual UI cleanly
+    await page.locator('#nav-settings').click();
+    await page.locator('[data-set-tab="currency"]').click();
+    await page.selectOption('#setPayoutCurSelect', '');
+    await page.waitForTimeout(300);
+    await page.locator('#nav-finance').click();
+    await page.waitForTimeout(200);
+    assert(await page.locator('#finPayoutToggle').isHidden(), 'Finance toggle hides cleanly when Payout Currency is Off');
+
+    await ctx.close();
+    return { payoutUiOk: true, identityOnlyEditProfile: true };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

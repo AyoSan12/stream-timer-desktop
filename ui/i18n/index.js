@@ -2,7 +2,7 @@
 
 import { LOCALES, LANGUAGE_META } from './locales.js';
 
-const ZERO_DEC = new Set(['IDR', 'JPY', 'KRW', 'VND', 'CLP', 'HUF', 'PYG', 'ISK']);
+const ZERO_DEC = new Set(['IDR', 'JPY', 'KRW', 'VND', 'CLP', 'PYG', 'UGX', 'RWF', 'ISK', 'HUF', 'KMF', 'GNF', 'XOF', 'XAF']);
 
 let activeLang = 'en';
 let activeCurrency = 'USD';

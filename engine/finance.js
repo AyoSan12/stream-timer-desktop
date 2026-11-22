@@ -14,6 +14,7 @@ import {
   convertCrossCurrency,
   currencyDecimals,
   roundCurrency,
+  unitCrossRate,
 } from './fx.js';
 
 export const FINANCE_CHANNEL_ORDER = [
@@ -247,9 +248,18 @@ function findSessionForTimestamp(tsMs, sessionsAsc) {
   return sessionsAsc[0] || { sessionId: 'session-1', seqNum: 1, label: 'Session #1', startedAtMs: 0, endedAtMs: null };
 }
 
-export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}) {
+export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}, options = {}) {
   const config = sanitizeFinanceConfig(rawConfig, rawConfig?.baseCurrency || 'USD');
   const cur = config.baseCurrency;
+  const rates = (options?.ratesPerUsd && typeof options.ratesPerUsd === 'object')
+    ? options.ratesPerUsd
+    : BASELINE_RATES_PER_USD;
+  const rawPayout = typeof options?.payoutCurrency === 'string'
+    ? options.payoutCurrency.trim().toUpperCase()
+    : '';
+  const payoutCurrency = (/^[A-Z]{3}$/.test(rawPayout) && rawPayout !== cur) ? rawPayout : null;
+  const payoutRate = payoutCurrency ? Number(unitCrossRate(cur, payoutCurrency, rates).toFixed(6)) : null;
+  const toPayout = (amt) => (payoutCurrency ? convertCrossCurrency(amt, cur, payoutCurrency, rates) : null);
 
   const sessionsAsc = (Array.isArray(rawSessions) && rawSessions.length > 0
     ? rawSessions
@@ -324,6 +334,10 @@ export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}
       taxReserve: fin.taxReserve,
       totalDeductions: fin.totalDeductions,
       netAmount: fin.netAmount,
+      payoutCurrency,
+      payoutGrossAmount: toPayout(fin.grossAmount),
+      payoutDeductions: toPayout(fin.totalDeductions),
+      payoutNetAmount: toPayout(fin.netAmount),
       effectiveFeePct: fin.effectiveFeePct,
       formulaText: fin.formulaText,
       creditMs: Number(row.creditMs) || 0,
@@ -342,22 +356,34 @@ export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}
     }
   }
 
-  const sessionsDesc = [...sessMap.values()].map((st) => ({
-    sessionId: st.sessionId,
-    seqNum: st.seqNum,
-    label: st.label,
-    notes: st.notes,
-    startedAtMs: st.startedAtMs,
-    endedAtMs: st.endedAtMs,
-    createdAtMs: st.createdAtMs,
-    isActive: st.isActive,
-    txCount: st.txCount,
-    grossAmount: fromCents(st.grossC, cur),
-    totalDeductions: fromCents(st.deductC, cur),
-    netAmount: fromCents(st.netC, cur),
-    effectiveFeePct: st.grossC > 0 ? Number(((st.deductC / st.grossC) * 100).toFixed(2)) : 0,
-    totalCreditMs: st.totalCreditMs,
-  })).sort((a, b) => b.seqNum - a.seqNum);
+  const sessionsDesc = [...sessMap.values()].map((st) => {
+    const grossAmount = fromCents(st.grossC, cur);
+    const totalDeductions = fromCents(st.deductC, cur);
+    const netAmount = fromCents(st.netC, cur);
+    return {
+      sessionId: st.sessionId,
+      seqNum: st.seqNum,
+      label: st.label,
+      notes: st.notes,
+      startedAtMs: st.startedAtMs,
+      endedAtMs: st.endedAtMs,
+      createdAtMs: st.createdAtMs,
+      isActive: st.isActive,
+      txCount: st.txCount,
+      grossAmount,
+      totalDeductions,
+      netAmount,
+      payout: payoutCurrency ? {
+        currency: payoutCurrency,
+        rate: payoutRate,
+        grossAmount: toPayout(grossAmount),
+        totalDeductions: toPayout(totalDeductions),
+        netAmount: toPayout(netAmount),
+      } : null,
+      effectiveFeePct: st.grossC > 0 ? Number(((st.deductC / st.grossC) * 100).toFixed(2)) : 0,
+      totalCreditMs: st.totalCreditMs,
+    };
+  }).sort((a, b) => b.seqNum - a.seqNum);
 
   const sessionById = Object.fromEntries(sessionsDesc.map((s) => [s.sessionId, s]));
   const rawScope = typeof filters.session === 'string' && filters.session.trim() ? filters.session.trim() : 'current';
@@ -453,37 +479,70 @@ export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}
   }
 
   const txCount = matched.length;
+  const sumGross = fromCents(grossC, cur);
+  const sumPlat = fromCents(platC, cur);
+  const sumPay = fromCents(payC, cur);
+  const sumFix = fromCents(fixC, cur);
+  const sumTax = fromCents(taxC, cur);
+  const sumDed = fromCents(dedC, cur);
+  const sumNet = fromCents(netC, cur);
+  const sumAvgGross = txCount > 0 ? fromCents(Math.round(grossC / txCount), cur) : 0;
+  const sumAvgNet = txCount > 0 ? fromCents(Math.round(netC / txCount), cur) : 0;
   const summary = {
     baseCurrency: cur,
     txCount,
-    grossAmount: fromCents(grossC, cur),
-    platformFee: fromCents(platC, cur),
-    paymentFee: fromCents(payC, cur),
-    fixedFee: fromCents(fixC, cur),
-    taxReserve: fromCents(taxC, cur),
-    totalDeductions: fromCents(dedC, cur),
-    netAmount: fromCents(netC, cur),
+    grossAmount: sumGross,
+    platformFee: sumPlat,
+    paymentFee: sumPay,
+    fixedFee: sumFix,
+    taxReserve: sumTax,
+    totalDeductions: sumDed,
+    netAmount: sumNet,
     effectiveFeePct: grossC > 0 ? Number(((dedC / grossC) * 100).toFixed(2)) : 0,
     takeHomePct: grossC > 0 ? Number(((netC / grossC) * 100).toFixed(2)) : 100,
-    avgGross: txCount > 0 ? fromCents(Math.round(grossC / txCount), cur) : 0,
-    avgNet: txCount > 0 ? fromCents(Math.round(netC / txCount), cur) : 0,
+    avgGross: sumAvgGross,
+    avgNet: sumAvgNet,
     totalCreditMs: creditMs,
+    payout: payoutCurrency ? {
+      currency: payoutCurrency,
+      rate: payoutRate,
+      grossAmount: toPayout(sumGross),
+      platformFee: toPayout(sumPlat),
+      paymentFee: toPayout(sumPay),
+      fixedFee: toPayout(sumFix),
+      taxReserve: toPayout(sumTax),
+      totalDeductions: toPayout(sumDed),
+      netAmount: toPayout(sumNet),
+      avgGross: toPayout(sumAvgGross),
+      avgNet: toPayout(sumAvgNet),
+    } : null,
   };
 
-  const byChannel = [...chanMap.values()].map((ch) => ({
-    channelKey: ch.channelKey,
-    channelLabel: ch.channelLabel,
-    platformFeePct: ch.platformFeePct,
-    paymentFeePct: ch.paymentFeePct,
-    fixedFee: ch.fixedFee,
-    txCount: ch.txCount,
-    grossAmount: fromCents(ch.grossC, cur),
-    totalDeductions: fromCents(ch.deductC, cur),
-    netAmount: fromCents(ch.netC, cur),
-    effectiveFeePct: ch.grossC > 0 ? Number(((ch.deductC / ch.grossC) * 100).toFixed(2)) : 0,
-    shareOfGrossPct: grossC > 0 ? Number(((ch.grossC / grossC) * 100).toFixed(1)) : 0,
-    shareOfNetPct: netC > 0 ? Number(((ch.netC / netC) * 100).toFixed(1)) : 0,
-  })).sort((a, b) => b.grossAmount - a.grossAmount);
+  const byChannel = [...chanMap.values()].map((ch) => {
+    const chGross = fromCents(ch.grossC, cur);
+    const chDed = fromCents(ch.deductC, cur);
+    const chNet = fromCents(ch.netC, cur);
+    return {
+      channelKey: ch.channelKey,
+      channelLabel: ch.channelLabel,
+      platformFeePct: ch.platformFeePct,
+      paymentFeePct: ch.paymentFeePct,
+      fixedFee: ch.fixedFee,
+      txCount: ch.txCount,
+      grossAmount: chGross,
+      totalDeductions: chDed,
+      netAmount: chNet,
+      payout: payoutCurrency ? {
+        currency: payoutCurrency,
+        grossAmount: toPayout(chGross),
+        totalDeductions: toPayout(chDed),
+        netAmount: toPayout(chNet),
+      } : null,
+      effectiveFeePct: ch.grossC > 0 ? Number(((ch.deductC / ch.grossC) * 100).toFixed(2)) : 0,
+      shareOfGrossPct: grossC > 0 ? Number(((ch.grossC / grossC) * 100).toFixed(1)) : 0,
+      shareOfNetPct: netC > 0 ? Number(((ch.netC / netC) * 100).toFixed(1)) : 0,
+    };
+  }).sort((a, b) => b.grossAmount - a.grossAmount);
 
   const byCurrency = [...curMap.values()].map((cr) => ({
     currency: cr.currency,
@@ -500,6 +559,8 @@ export function buildFinanceReport(rawRows, rawSessions, rawConfig, filters = {}
   return {
     exportedAtIso: new Date().toISOString(),
     baseCurrency: cur,
+    payoutCurrency,
+    payoutRate,
     scope: {
       requested: rawScope,
       sessionId: scopeId,
@@ -529,12 +590,15 @@ function csvCell(val) {
 
 export function exportFinanceCsv(report) {
   const cur = report.baseCurrency;
+  const pCur = report.payoutCurrency && report.summary?.payout ? report.payoutCurrency : null;
   const headers = [
     'Timestamp (ISO)', 'Date', 'Time', 'Session', 'Event ID', 'Donor', 'Platform', 'Raw Source',
     'Tier / Level', 'Qty / Units', 'Original Amount', 'Original Currency',
     `Gross (${cur})`, 'Platform Fee (%)', `Platform Fee (${cur})`, 'Payment Fee (%)', `Payment Fee (${cur})`,
     `Fixed Fee (${cur})`, 'Tax Reserve (%)', `Tax Reserve (${cur})`, `Total Deductions (${cur})`,
-    'Effective Cut (%)', `Net Revenue (${cur})`, 'Timer Credit (sec)', 'Formula', 'Message',
+    'Effective Cut (%)', `Net Revenue (${cur})`,
+    ...(pCur ? [`Est. Payout Gross (${pCur})`, `Est. Payout Net (${pCur})`] : []),
+    'Timer Credit (sec)', 'Formula', 'Message',
   ];
   const lines = [headers.map(csvCell).join(',')];
   for (const tx of report.transactions) {
@@ -544,15 +608,20 @@ export function exportFinanceCsv(report) {
       tx.channelLabel, tx.provider, tx.tierOrLevel || '', tx.units ?? '',
       tx.originalAmount, tx.originalCurrency, tx.grossAmount, tx.platformFeePct, tx.platformFee,
       tx.paymentFeePct, tx.paymentFee, tx.fixedFee, tx.taxReservePct, tx.taxReserve,
-      tx.totalDeductions, tx.effectiveFeePct, tx.netAmount, Math.round((tx.creditMs || 0) / 1000),
+      tx.totalDeductions, tx.effectiveFeePct, tx.netAmount,
+      ...(pCur ? [tx.payoutGrossAmount ?? '', tx.payoutNetAmount ?? ''] : []),
+      Math.round((tx.creditMs || 0) / 1000),
       tx.formulaText, tx.message,
     ].map(csvCell).join(','));
   }
   const s = report.summary;
+  const sp = s.payout;
   lines.push([
     'TOTAL', '', '', report.scope.label, `${s.txCount} transactions`, '', '', '', '', '', '', cur,
     s.grossAmount, '', s.platformFee, '', s.paymentFee, s.fixedFee, '', s.taxReserve,
-    s.totalDeductions, s.effectiveFeePct, s.netAmount, Math.round((s.totalCreditMs || 0) / 1000), '', '',
+    s.totalDeductions, s.effectiveFeePct, s.netAmount,
+    ...(pCur && sp ? [sp.grossAmount, sp.netAmount] : []),
+    Math.round((s.totalCreditMs || 0) / 1000), '', '',
   ].map(csvCell).join(','));
   return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
@@ -563,8 +632,11 @@ export function exportFinanceJson(report) {
 
 export function exportFinanceMarkdown(report) {
   const cur = report.baseCurrency;
+  const pCur = report.payoutCurrency && report.summary?.payout ? report.payoutCurrency : null;
   const s = report.summary;
+  const sp = s.payout;
   const fmt = (v) => formatMoney(v, cur);
+  const fmtP = (v) => formatMoney(v, pCur);
   const esc = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
   const lines = [
     `# Stream Revenue Report: ${report.scope.label}`,
@@ -575,14 +647,21 @@ export function exportFinanceMarkdown(report) {
     `- **Gross Revenue:** ${fmt(s.grossAmount)}`,
     `- **Total Deductions:** -${fmt(s.totalDeductions)} (${s.effectiveFeePct}%)`,
     `- **Net Take-Home:** **${fmt(s.netAmount)}** (${s.takeHomePct}%)`,
+    ...(pCur && sp ? [`- **Home / Payout Equivalent (${pCur}):** **${fmtP(sp.netAmount)}** (Gross ${fmtP(sp.grossAmount)}, 1 ${cur} = ${report.payoutRate} ${pCur})`] : []),
     '',
     '## Platform Breakdown',
     '',
-    `| Platform | Tx | Gross (${cur}) | Deductions | Effective Cut | Net (${cur}) | Share |`,
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+    pCur
+      ? `| Platform | Tx | Gross (${cur}) | Deductions | Effective Cut | Net (${cur}) | Est. Net (${pCur}) | Share |`
+      : `| Platform | Tx | Gross (${cur}) | Deductions | Effective Cut | Net (${cur}) | Share |`,
+    pCur
+      ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+      : '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
   ];
   for (const ch of report.byChannel) {
-    lines.push(`| ${esc(ch.channelLabel)} | ${ch.txCount} | ${fmt(ch.grossAmount)} | -${fmt(ch.totalDeductions)} | ${ch.effectiveFeePct}% | ${fmt(ch.netAmount)} | ${ch.shareOfNetPct}% |`);
+    lines.push(pCur
+      ? `| ${esc(ch.channelLabel)} | ${ch.txCount} | ${fmt(ch.grossAmount)} | -${fmt(ch.totalDeductions)} | ${ch.effectiveFeePct}% | ${fmt(ch.netAmount)} | ${fmtP(ch.payout?.netAmount || 0)} | ${ch.shareOfNetPct}% |`
+      : `| ${esc(ch.channelLabel)} | ${ch.txCount} | ${fmt(ch.grossAmount)} | -${fmt(ch.totalDeductions)} | ${ch.effectiveFeePct}% | ${fmt(ch.netAmount)} | ${ch.shareOfNetPct}% |`);
   }
   lines.push(
     '',
@@ -605,21 +684,25 @@ function escHtml(v) {
 
 export function exportFinanceHtmlReport(report) {
   const cur = report.baseCurrency;
+  const pCur = report.payoutCurrency && report.summary?.payout ? report.payoutCurrency : null;
   const s = report.summary;
+  const sp = s.payout;
   const fmt = (v) => formatMoney(v, cur);
+  const fmtP = (v) => formatMoney(v, pCur);
   const chanRows = report.byChannel.map((ch) => `
     <tr>
       <td><strong>${escHtml(ch.channelLabel)}</strong><div class="sub">${ch.platformFeePct}% platform${ch.paymentFeePct ? ` · ${ch.paymentFeePct}% pay` : ''}${ch.fixedFee ? ` · +${escHtml(fmt(ch.fixedFee))}` : ''}</div></td>
       <td class="num">${ch.txCount}</td>
       <td class="num">${escHtml(fmt(ch.grossAmount))}</td>
       <td class="num neg">-${escHtml(fmt(ch.totalDeductions))} <span class="sub">(${ch.effectiveFeePct}%)</span></td>
-      <td class="num"><strong>${escHtml(fmt(ch.netAmount))}</strong></td>
+      <td class="num"><strong>${escHtml(fmt(ch.netAmount))}</strong>${pCur && ch.payout ? `<div class="sub">≈ ${escHtml(fmtP(ch.payout.netAmount))}</div>` : ''}</td>
       <td class="num">${ch.shareOfNetPct}%</td>
     </tr>`).join('');
 
   const txRows = report.transactions.map((tx) => {
     const dt = new Date(tx.appliedAtMs).toISOString().replace('T', ' ').slice(0, 19);
     const orig = tx.originalCurrency !== cur ? `<div class="sub">${escHtml(tx.originalAmount)} ${escHtml(tx.originalCurrency)}</div>` : '';
+    const paySub = pCur && tx.payoutNetAmount !== null ? `<div class="sub">≈ ${escHtml(fmtP(tx.payoutNetAmount))}</div>` : '';
     return `
     <tr>
       <td class="mono">${escHtml(dt)}</td>
@@ -627,7 +710,7 @@ export function exportFinanceHtmlReport(report) {
       <td>${escHtml(tx.channelLabel)}${tx.tierOrLevel ? `<div class="sub">${escHtml(tx.tierOrLevel)}</div>` : ''}</td>
       <td class="num">${escHtml(fmt(tx.grossAmount))}${orig}</td>
       <td class="num neg">-${escHtml(fmt(tx.totalDeductions))}<div class="sub">${tx.effectiveFeePct}%</div></td>
-      <td class="num"><strong>${escHtml(fmt(tx.netAmount))}</strong></td>
+      <td class="num"><strong>${escHtml(fmt(tx.netAmount))}</strong>${paySub}</td>
     </tr>`;
   }).join('');
 
@@ -655,13 +738,13 @@ export function exportFinanceHtmlReport(report) {
   .neg { color: #b91c1c; }
   @media print { body { background: #fff; padding: 0; } .sheet { border: 0; border-radius: 0; padding: 0; max-width: none; } .print-btn { display: none; } }
 </style></head><body><div class="sheet">
-  <div class="head"><div><h1>Stream Financial Statement</h1><div class="muted">Scope: <strong>${escHtml(report.scope.label)}</strong> &middot; Currency: <strong>${escHtml(cur)}</strong> &middot; ${s.txCount} tx</div></div>
+  <div class="head"><div><h1>Stream Financial Statement</h1><div class="muted">Scope: <strong>${escHtml(report.scope.label)}</strong> &middot; Currency: <strong>${escHtml(cur)}</strong>${pCur ? ` &middot; Payout: <strong>${escHtml(pCur)}</strong> (1 ${escHtml(cur)} = ${escHtml(report.payoutRate)} ${escHtml(pCur)})` : ''} &middot; ${s.txCount} tx</div></div>
   <button class="print-btn" type="button" onclick="window.print()">Print / Save PDF</button></div>
   <div class="kpis">
-    <div class="kpi"><div class="kpi-lbl">Gross Revenue</div><div class="kpi-val">${escHtml(fmt(s.grossAmount))}</div><div class="sub">${s.txCount} tx</div></div>
-    <div class="kpi"><div class="kpi-lbl">Total Deductions</div><div class="kpi-val neg">-${escHtml(fmt(s.totalDeductions))}</div><div class="sub">${s.effectiveFeePct}% effective cut</div></div>
-    <div class="kpi dark"><div class="kpi-lbl">Net Take-Home</div><div class="kpi-val">${escHtml(fmt(s.netAmount))}</div><div class="sub">${s.takeHomePct}% kept</div></div>
-    <div class="kpi"><div class="kpi-lbl">Avg Net / Tx</div><div class="kpi-val">${escHtml(fmt(s.avgNet))}</div><div class="sub">Avg Gross ${escHtml(fmt(s.avgGross))}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Gross Revenue</div><div class="kpi-val">${escHtml(fmt(s.grossAmount))}</div>${pCur && sp ? `<div class="sub">≈ ${escHtml(fmtP(sp.grossAmount))}</div>` : ''}<div class="sub">${s.txCount} tx</div></div>
+    <div class="kpi"><div class="kpi-lbl">Total Deductions</div><div class="kpi-val neg">-${escHtml(fmt(s.totalDeductions))}</div>${pCur && sp ? `<div class="sub">≈ -${escHtml(fmtP(sp.totalDeductions))}</div>` : ''}<div class="sub">${s.effectiveFeePct}% effective cut</div></div>
+    <div class="kpi dark"><div class="kpi-lbl">Net Take-Home</div><div class="kpi-val">${escHtml(fmt(s.netAmount))}</div>${pCur && sp ? `<div class="sub">≈ ${escHtml(fmtP(sp.netAmount))}</div>` : ''}<div class="sub">${s.takeHomePct}% kept</div></div>
+    <div class="kpi"><div class="kpi-lbl">Avg Net / Tx</div><div class="kpi-val">${escHtml(fmt(s.avgNet))}</div>${pCur && sp ? `<div class="sub">≈ ${escHtml(fmtP(sp.avgNet))}</div>` : ''}<div class="sub">Avg Gross ${escHtml(fmt(s.avgGross))}</div></div>
   </div>
   <h2>Platform &amp; Deduction Breakdown</h2>
   <table><thead><tr><th>Platform</th><th class="num">Tx</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net</th><th class="num">Share</th></tr></thead><tbody>${chanRows || '<tr><td colspan="6" class="muted">No transactions.</td></tr>'}</tbody></table>
@@ -763,46 +846,70 @@ function buildWorksheetXml(rows, widths = []) {
 
 export function exportFinanceXlsx(report) {
   const cur = report.baseCurrency;
+  const pCur = report.payoutCurrency && report.summary?.payout ? report.payoutCurrency : null;
   const dec = currencyDecimals(cur);
   const numFmtCode = dec === 0 ? '#,##0' : '#,##0.00';
+  const pDec = pCur ? currencyDecimals(pCur) : 2;
+  const pNumFmtCode = pDec === 0 ? '#,##0' : '#,##0.00';
   const s = report.summary;
+  const sp = s.payout;
   const h = (v) => ({ v, s: 1 });
   const num = (v) => ({ v: Number(v) || 0, s: 2 });
   const numBold = (v) => ({ v: Number(v) || 0, s: 3 });
   const pct = (v) => ({ v: Number(v) || 0, s: 4 });
+  const pNum = (v) => ({ v: Number(v) || 0, s: 5 });
+  const pNumBold = (v) => ({ v: Number(v) || 0, s: 6 });
 
-  const summaryRows = [
-    [h('Stream Financial Summary'), h(`Value (${cur})`)],
-    ['Report Scope', report.scope.label],
-    ['Base Currency', cur],
-    ['Generated At (UTC)', report.exportedAtIso],
-    ['Transaction Count', num(s.txCount)],
-    [`Gross Revenue (${cur})`, numBold(s.grossAmount)],
-    [`Platform Cuts (${cur})`, num(s.platformFee)],
-    [`Payment Fees (${cur})`, num(s.paymentFee)],
-    [`Fixed Gateway Fees (${cur})`, num(s.fixedFee)],
-    [`Tax Reserve (${cur})`, num(s.taxReserve)],
-    [`Total Deductions (${cur})`, numBold(s.totalDeductions)],
-    ['Effective Deduction Rate (%)', pct(s.effectiveFeePct)],
-    [`Net Take-Home (${cur})`, numBold(s.netAmount)],
-    ['Take-Home Share (%)', pct(s.takeHomePct)],
-  ];
+  const summaryRows = pCur && sp
+    ? [
+        [h('Stream Financial Summary'), h(`Value (${cur})`), h(`Est. Payout (${pCur})`)],
+        ['Report Scope', report.scope.label, ''],
+        ['Base Currency', cur, ''],
+        ['Home / Payout Currency', pCur, `1 ${cur} = ${report.payoutRate} ${pCur}`],
+        ['Generated At (UTC)', report.exportedAtIso, ''],
+        ['Transaction Count', num(s.txCount), ''],
+        [`Gross Revenue (${cur})`, numBold(s.grossAmount), pNumBold(sp.grossAmount)],
+        [`Platform Cuts (${cur})`, num(s.platformFee), pNum(sp.platformFee)],
+        [`Payment Fees (${cur})`, num(s.paymentFee), pNum(sp.paymentFee)],
+        [`Fixed Gateway Fees (${cur})`, num(s.fixedFee), pNum(sp.fixedFee)],
+        [`Tax Reserve (${cur})`, num(s.taxReserve), pNum(sp.taxReserve)],
+        [`Total Deductions (${cur})`, numBold(s.totalDeductions), pNumBold(sp.totalDeductions)],
+        ['Effective Deduction Rate (%)', pct(s.effectiveFeePct), ''],
+        [`Net Take-Home (${cur})`, numBold(s.netAmount), pNumBold(sp.netAmount)],
+        ['Take-Home Share (%)', pct(s.takeHomePct), ''],
+      ]
+    : [
+        [h('Stream Financial Summary'), h(`Value (${cur})`)],
+        ['Report Scope', report.scope.label],
+        ['Base Currency', cur],
+        ['Generated At (UTC)', report.exportedAtIso],
+        ['Transaction Count', num(s.txCount)],
+        [`Gross Revenue (${cur})`, numBold(s.grossAmount)],
+        [`Platform Cuts (${cur})`, num(s.platformFee)],
+        [`Payment Fees (${cur})`, num(s.paymentFee)],
+        [`Fixed Gateway Fees (${cur})`, num(s.fixedFee)],
+        [`Tax Reserve (${cur})`, num(s.taxReserve)],
+        [`Total Deductions (${cur})`, numBold(s.totalDeductions)],
+        ['Effective Deduction Rate (%)', pct(s.effectiveFeePct)],
+        [`Net Take-Home (${cur})`, numBold(s.netAmount)],
+        ['Take-Home Share (%)', pct(s.takeHomePct)],
+      ];
 
   const platformRows = [
-    [h('Platform'), h('Tx'), h('Platform %'), h('Payment %'), h(`Fixed (${cur})`), h(`Gross (${cur})`), h(`Deductions (${cur})`), h('Effective %'), h(`Net (${cur})`), h('Share %')],
-    ...report.byChannel.map((ch) => [ch.channelLabel, num(ch.txCount), pct(ch.platformFeePct), pct(ch.paymentFeePct), num(ch.fixedFee), num(ch.grossAmount), num(ch.totalDeductions), pct(ch.effectiveFeePct), numBold(ch.netAmount), pct(ch.shareOfNetPct)]),
+    [h('Platform'), h('Tx'), h('Platform %'), h('Payment %'), h(`Fixed (${cur})`), h(`Gross (${cur})`), h(`Deductions (${cur})`), h('Effective %'), h(`Net (${cur})`), ...(pCur ? [h(`Est. Net (${pCur})`)] : []), h('Share %')],
+    ...report.byChannel.map((ch) => [ch.channelLabel, num(ch.txCount), pct(ch.platformFeePct), pct(ch.paymentFeePct), num(ch.fixedFee), num(ch.grossAmount), num(ch.totalDeductions), pct(ch.effectiveFeePct), numBold(ch.netAmount), ...(pCur ? [pNumBold(ch.payout?.netAmount || 0)] : []), pct(ch.shareOfNetPct)]),
   ];
 
   const txRows = [
-    [h('Timestamp (UTC)'), h('Session'), h('Event ID'), h('Donor'), h('Platform'), h('Tier/Level'), h('Orig Amount'), h('Orig Cur'), h(`Gross (${cur})`), h(`Platform Fee`), h(`Payment Fee`), h(`Fixed Fee`), h(`Tax`), h(`Total Deductions`), h('Cut %'), h(`Net (${cur})`), h('Credit (sec)'), h('Formula'), h('Message')],
+    [h('Timestamp (UTC)'), h('Session'), h('Event ID'), h('Donor'), h('Platform'), h('Tier/Level'), h('Orig Amount'), h('Orig Cur'), h(`Gross (${cur})`), h(`Platform Fee`), h(`Payment Fee`), h(`Fixed Fee`), h(`Tax`), h(`Total Deductions`), h('Cut %'), h(`Net (${cur})`), ...(pCur ? [h(`Est. Net (${pCur})`)] : []), h('Credit (sec)'), h('Formula'), h('Message')],
     ...report.transactions.map((tx) => [
       new Date(tx.appliedAtMs).toISOString().replace('T', ' ').slice(0, 19), tx.sessionLabel, tx.eventId, tx.gifterName, tx.channelLabel, tx.tierOrLevel || '',
       tx.originalAmount, tx.originalCurrency, num(tx.grossAmount), num(tx.platformFee), num(tx.paymentFee), num(tx.fixedFee), num(tx.taxReserve),
-      num(tx.totalDeductions), pct(tx.effectiveFeePct), numBold(tx.netAmount), num(Math.round((tx.creditMs || 0) / 1000)), tx.formulaText, tx.message,
+      num(tx.totalDeductions), pct(tx.effectiveFeePct), numBold(tx.netAmount), ...(pCur ? [pNumBold(tx.payoutNetAmount ?? 0)] : []), num(Math.round((tx.creditMs || 0) / 1000)), tx.formulaText, tx.message,
     ]),
   ];
 
-  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="${numFmtCode}"/><numFmt numFmtId="165" formatCode="0.00&quot;%&quot;"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F7"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`;
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="${numFmtCode}"/><numFmt numFmtId="165" formatCode="0.00&quot;%&quot;"/><numFmt numFmtId="166" formatCode="${pNumFmtCode}"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F7"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="7"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/></cellXfs></styleSheet>`;
   const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
   const rootRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
   const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Platform Breakdown" sheetId="2" r:id="rId2"/><sheet name="Transactions" sheetId="3" r:id="rId3"/></sheets></workbook>`;
@@ -814,8 +921,8 @@ export function exportFinanceXlsx(report) {
     { name: 'xl/workbook.xml', content: workbookXml },
     { name: 'xl/_rels/workbook.xml.rels', content: workbookRelsXml },
     { name: 'xl/styles.xml', content: stylesXml },
-    { name: 'xl/worksheets/sheet1.xml', content: buildWorksheetXml(summaryRows, [32, 26]) },
-    { name: 'xl/worksheets/sheet2.xml', content: buildWorksheetXml(platformRows, [28, 8, 12, 12, 14, 16, 16, 12, 16, 12]) },
-    { name: 'xl/worksheets/sheet3.xml', content: buildWorksheetXml(txRows, [22, 16, 26, 20, 24, 16, 14, 10, 14, 14, 14, 12, 12, 16, 10, 14, 12, 42, 30]) },
+    { name: 'xl/worksheets/sheet1.xml', content: buildWorksheetXml(summaryRows, pCur ? [32, 26, 26] : [32, 26]) },
+    { name: 'xl/worksheets/sheet2.xml', content: buildWorksheetXml(platformRows, pCur ? [28, 8, 12, 12, 14, 16, 16, 12, 16, 18, 12] : [28, 8, 12, 12, 14, 16, 16, 12, 16, 12]) },
+    { name: 'xl/worksheets/sheet3.xml', content: buildWorksheetXml(txRows, pCur ? [22, 16, 26, 20, 24, 16, 14, 10, 14, 14, 14, 12, 12, 16, 10, 14, 18, 12, 42, 30] : [22, 16, 26, 20, 24, 16, 14, 10, 14, 14, 14, 12, 12, 16, 10, 14, 12, 42, 30]) },
   ]);
 }

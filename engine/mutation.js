@@ -437,7 +437,7 @@ export function recalculateFinanceSnapshots(db, baseCurrency, ratesPerUsd, { sco
   });
 }
 
-export function readFinanceReport(db, baseCurrency, ratesPerUsd, filters = {}) {
+export function readFinanceReport(db, baseCurrency, ratesPerUsd, filters = {}, options = {}) {
   const sessions = readFinanceSessions(db);
   const config = readFinanceConfig(db, baseCurrency, ratesPerUsd);
   const rows = db.prepare(
@@ -454,7 +454,10 @@ export function readFinanceReport(db, baseCurrency, ratesPerUsd, filters = {}) {
     payload: JSON.parse(r.payload_json || '{}'),
     deletedAtMs: r.deleted_at_ms === null ? null : Number(r.deleted_at_ms),
   }));
-  return buildFinanceReport(rows, sessions, config, filters);
+  return buildFinanceReport(rows, sessions, config, filters, {
+    payoutCurrency: options?.payoutCurrency || null,
+    ratesPerUsd,
+  });
 }
 
 /**

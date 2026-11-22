@@ -306,14 +306,24 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     };
   }
 
+  function normalizePayoutCurrency(val, baseCurrency) {
+    if (typeof val !== 'string') return null;
+    const code = val.trim().toUpperCase();
+    const base = String(baseCurrency || 'USD').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(code) || code === base) return null;
+    return code;
+  }
+
   function publicProfile(p) {
+    const baseCurrency = p.baseCurrency || 'USD';
     return {
       id: p.id,
       name: p.name,
       handle: p.handle || '',
       avatarColor: p.avatarColor || '#0071e3',
       language: p.language || 'en',
-      baseCurrency: p.baseCurrency || 'USD',
+      baseCurrency,
+      payoutCurrency: normalizePayoutCurrency(p.payoutCurrency, baseCurrency),
       streamPlatforms: Array.isArray(p.streamPlatforms) ? p.streamPlatforms : ['youtube'],
       donationPlatforms: Array.isArray(p.donationPlatforms) ? p.donationPlatforms : ['streamlabs'],
       readToken: p.readToken,
@@ -341,6 +351,7 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     const baseCurrency = typeof input.baseCurrency === 'string' && /^[A-Z]{3}$/i.test(input.baseCurrency.trim())
       ? input.baseCurrency.trim().toUpperCase()
       : 'USD';
+    const payoutCurrency = normalizePayoutCurrency(input.payoutCurrency, baseCurrency);
     const streamPlatforms = Array.isArray(input.streamPlatforms) && input.streamPlatforms.length > 0
       ? [...new Set(input.streamPlatforms.map((s) => String(s).toLowerCase()).filter((s) => s === 'youtube' || s === 'twitch'))]
       : ['youtube'];
@@ -357,6 +368,7 @@ export function createProfileStore(dataDir = defaultDataDir()) {
       avatarColor,
       language,
       baseCurrency,
+      payoutCurrency,
       streamPlatforms: streamPlatforms.length ? streamPlatforms : ['youtube'],
       donationPlatforms,
       readToken: crypto.randomBytes(24).toString('hex'),
@@ -416,6 +428,10 @@ export function createProfileStore(dataDir = defaultDataDir()) {
     if (typeof patch.baseCurrency === 'string' && /^[A-Z]{3}$/i.test(patch.baseCurrency.trim())) {
       prof.baseCurrency = patch.baseCurrency.trim().toUpperCase();
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'payoutCurrency')) {
+      prof.payoutCurrency = normalizePayoutCurrency(patch.payoutCurrency, prof.baseCurrency);
+    }
+    prof.payoutCurrency = normalizePayoutCurrency(prof.payoutCurrency, prof.baseCurrency);
     if (Array.isArray(patch.streamPlatforms)) {
       const clean = [...new Set(patch.streamPlatforms.map((s) => String(s).toLowerCase()).filter((s) => s === 'youtube' || s === 'twitch'))];
       if (clean.length) prof.streamPlatforms = clean;
@@ -537,6 +553,7 @@ export function createProfileStore(dataDir = defaultDataDir()) {
       avatarColor: bundle.profile.avatarColor,
       language: bundle.profile.language,
       baseCurrency: bundle.profile.baseCurrency,
+      payoutCurrency: bundle.profile.payoutCurrency || null,
       streamPlatforms: bundle.profile.streamPlatforms,
       donationPlatforms: bundle.profile.donationPlatforms,
     });
