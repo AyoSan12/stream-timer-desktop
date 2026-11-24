@@ -1,30 +1,35 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bg="__OBS_BG__"__OBS_BG_STYLE__>
 <head>
 <meta charset="utf-8">
 <title>Stream Timer | OBS Source</title>
 <link rel="stylesheet" href="/source.css">
 </head>
-<body data-bg="dark">
-<main id="stage" class="stage" data-pos="bottom-left">
-  <section id="card" class="overlay-card" aria-live="off">
+<body data-bg="__OBS_BG__"__OBS_BG_STYLE__>
+<main id="stage" class="stage" data-pos="__OBS_POS__">
+  <section id="card" class="__OBS_CARD_CLASS__" style="__OBS_CARD_STYLE__" aria-live="off">
     <div id="creditToast" class="credit-toast" hidden></div>
-    <div id="rushBadge" class="rush-badge" hidden>BILLING RUSH LV.1</div>
-    <div id="timerLabel" class="timer-label">STREAM TIMER</div>
-    <div id="countdown" class="countdown" role="timer">00:00:00</div>
-    <div id="totalRow" class="total-row">
-      <span id="totalLabel" class="total-label">TOTAL ADDED</span>
-      <span id="totalVal" class="total-val">0h 0m</span>
+    <div id="rushBadge" class="rush-badge"__OBS_RUSH_HIDDEN__>__OBS_RUSH_TEXT__</div>
+    <div id="timerLabel" class="timer-label"__OBS_TIMER_HIDDEN__ style="__OBS_TIMER_LABEL_STYLE__">__OBS_TIMER_LABEL__</div>
+    <div id="countdown" class="countdown" role="timer"__OBS_TIMER_HIDDEN__ style="__OBS_COUNTDOWN_STYLE__">__OBS_CLOCK__</div>
+    <div id="totalRow" class="total-row"__OBS_TOTAL_HIDDEN__>
+      <span id="totalLabel" class="total-label">__OBS_TOTAL_LABEL__</span>
+      <span id="totalVal" class="total-val" style="__OBS_TOTAL_VAL_STYLE__">__OBS_TOTAL_VAL__</span>
     </div>
   </section>
 </main>
+<script>window.__INITIAL_OBS__ = __OBS_INIT_JSON__;</script>
 <script type="module">
-import { remainingAt, formatSeconds, formatClock } from '/js/timer-client.js';
+import { applySnapshot, remainingAt, formatSeconds, formatClock } from '/js/timer-client.js';
 import { createTimerLink } from '/js/timer-link.js';
 
 const qs = new URLSearchParams(window.location.search);
 const bgOverride = qs.get('bg');
 const popupOverride = qs.get('popup');
+const obsScopeQs = new URLSearchParams();
+if (qs.get('profile')) obsScopeQs.set('profile', qs.get('profile'));
+if (qs.get('token')) obsScopeQs.set('token', qs.get('token'));
+const obsScopeSuffix = obsScopeQs.toString() ? `?${obsScopeQs.toString()}` : '';
 
 const stage = document.getElementById('stage');
 const card = document.getElementById('card');
@@ -36,15 +41,31 @@ const totalLabel = document.getElementById('totalLabel');
 const totalVal = document.getElementById('totalVal');
 const creditToast = document.getElementById('creditToast');
 
-let snap = null;
+const INIT = window.__INITIAL_OBS__ || null;
+const defaultCfg = { timerName: 'Stream Timer', totalName: 'Total Added', showTimer: true, showTotal: true, showRush: true, bgMode: 'dark', bgColor: '#00ff00', textColor: '#ffffff', accentColor: '#2997ff', fontSize: 42, position: 'bottom-left', opacity: 92, popup: true, rushOn: false, rushLv: 1 };
+let cfg = INIT && INIT.overlay ? { ...defaultCfg, ...INIT.overlay } : { ...defaultCfg };
+let snap = INIT && INIT.snapshot ? applySnapshot(null, INIT.snapshot, performance.now()) : null;
 let knownAppVersion = null;
-let cfg = { timerName: 'Stream Timer', totalName: 'Total Added', showTimer: true, showTotal: true, showRush: true, bgMode: 'dark', textColor: '#ffffff', accentColor: '#2997ff', fontSize: 42, position: 'bottom-left', opacity: 92, popup: true, rushOn: false, rushLv: 1 };
 let toastTimer = null;
 
 function applyStyle() {
-  document.body.dataset.bg = bgOverride || cfg.bgMode || 'dark';
+  const bgMode = cfg.bgMode || bgOverride || 'transparent';
+  document.documentElement.dataset.bg = bgMode;
+  document.body.dataset.bg = bgMode;
+  if (bgMode === 'color' && typeof cfg.bgColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(cfg.bgColor)) {
+    document.documentElement.style.backgroundColor = cfg.bgColor;
+    document.body.style.backgroundColor = cfg.bgColor;
+  } else {
+    document.documentElement.style.backgroundColor = '';
+    document.body.style.backgroundColor = '';
+  }
+
   stage.dataset.pos = cfg.position || 'bottom-left';
-  card.style.backgroundColor = `rgba(29, 29, 31, ${((cfg.opacity ?? 92) / 100).toFixed(2)})`;
+  const rawOp = Number(cfg.opacity);
+  const op = Number.isFinite(rawOp) ? Math.min(100, Math.max(0, Math.round(rawOp))) : 92;
+  card.classList.toggle('is-frameless', op === 0);
+  card.style.backgroundColor = op === 0 ? 'transparent' : `rgba(29, 29, 31, ${(op / 100).toFixed(2)})`;
+
   rushBadge.hidden = !(cfg.rushOn && cfg.showRush);
   rushBadge.textContent = `BILLING RUSH LV.${cfg.rushLv || 1}`;
   timerLabel.hidden = !cfg.showTimer;
@@ -66,7 +87,8 @@ function applyStyle() {
 }
 
 function showPopup(deltaMs) {
-  if (popupOverride === 'off' || cfg.popup === false) return;
+  const allowPopup = typeof cfg.popup === 'boolean' ? cfg.popup : (popupOverride !== 'off');
+  if (!allowPopup) return;
   const sec = Math.round(deltaMs / 1000);
   if (sec <= 0) return;
   if (toastTimer) clearTimeout(toastTimer);
@@ -77,7 +99,7 @@ function showPopup(deltaMs) {
 
 async function fetchOverlayConfig() {
   try {
-    const res = await fetch('/api/overlay-config', { headers: { accept: 'application/json' }, cache: 'no-store' });
+    const res = await fetch(`/api/overlay-config${obsScopeSuffix}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
     if (res.ok) {
       const nextCfg = await res.json();
       if (nextCfg && typeof nextCfg === 'object') {
@@ -88,9 +110,13 @@ async function fetchOverlayConfig() {
   } catch { /* ignore transient offline */ }
 }
 
+applyStyle();
+
+const streamQs = new URLSearchParams(obsScopeQs);
+streamQs.set('role', 'obs');
 const link = createTimerLink({
-  streamUrl: '/api/stream?role=obs',
-  stateUrl: '/api/state',
+  streamUrl: `/api/stream?${streamQs.toString()}`,
+  stateUrl: `/api/state${obsScopeSuffix}`,
   onHello: (info) => {
     const ver = info && typeof info.appVersion === 'string' ? info.appVersion : '';
     if (!ver) return;

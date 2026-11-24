@@ -302,7 +302,7 @@ export function updateOverlayConfig(db, patch = {}) {
     fontFamily: str(patch.fontFamily, 80, base.fontFamily),
     fontSize: intR(patch.fontSize, 16, 96, base.fontSize),
     position: ALLOWED_POS.has(patch.position) ? patch.position : base.position,
-    opacity: intR(patch.opacity, 10, 100, base.opacity),
+    opacity: intR(patch.opacity, 0, 100, base.opacity),
     popup: bool(patch.popup, base.popup),
     rushOn: bool(patch.rushOn, base.rushOn),
     rushLv: intR(patch.rushLv, 1, 10, base.rushLv),

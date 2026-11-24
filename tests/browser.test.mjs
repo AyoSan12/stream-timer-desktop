@@ -574,6 +574,89 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'UI6-obs-overlay-true-transparency-live-sync-and-zero-flash-refresh',
+  async fn() {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 740 }, colorScheme: 'dark' });
+    const page = await ctx.newPage();
+    await page.goto(`${eng.base}/?desktop=1&theme=dark`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#appRoot:not([hidden])', { timeout: 6000 });
+    await page.waitForSelector('#appleSplash', { state: 'hidden', timeout: 4000 });
+
+    // 1. Configure OBS Overlay in UI: Transparent + Center (instant save on select change!)
+    await page.locator('#nav-overlay').click();
+    await page.waitForTimeout(150);
+    await page.selectOption('#ovBg', 'transparent');
+    await page.selectOption('#ovPos', 'center');
+    await page.waitForTimeout(200);
+
+    // Verify copied URL is clean (no stale &bg=transparent baked in)
+    const boxUrl = await page.locator('#obsUrlBox').textContent();
+    assert(!boxUrl.includes('bg='), `Copied OBS URL stays clean without stale bg param (${boxUrl})`);
+
+    const bootRes = await fetch(`${eng.base}/api/app/bootstrap`);
+    const bootJson = await bootRes.json();
+    const profId = bootJson.activeProfile.id;
+    const tok = bootJson.activeProfile.readToken;
+
+    // 2. Open OBS Browser Source URL WITH stale &bg=transparent query param and capture Frame-1 metrics BEFORE async JS fetches
+    const obsPage = await ctx.newPage();
+    await obsPage.addInitScript(() => {
+      window.__firstFrameObs = null;
+      document.addEventListener('DOMContentLoaded', () => {
+        const htmlCs = getComputedStyle(document.documentElement);
+        const bodyCs = getComputedStyle(document.body);
+        window.__firstFrameObs = {
+          htmlBg: document.documentElement.dataset.bg,
+          bodyBg: document.body.dataset.bg,
+          stagePos: document.getElementById('stage')?.dataset.pos,
+          htmlComputedBg: htmlCs.backgroundColor,
+          bodyComputedBg: bodyCs.backgroundColor,
+        };
+      });
+    });
+
+    const obsUrl = `${eng.base}/source?profile=${encodeURIComponent(profId)}&token=${encodeURIComponent(tok)}&bg=transparent`;
+    await obsPage.goto(obsUrl, { waitUntil: 'domcontentloaded' });
+    await obsPage.waitForTimeout(200);
+
+    const f1 = await obsPage.evaluate(() => window.__firstFrameObs);
+    eq(f1.htmlBg, 'transparent', 'Frame 1 root <html> data-bg is transparent');
+    eq(f1.bodyBg, 'transparent', 'Frame 1 <body> data-bg is transparent');
+    eq(f1.stagePos, 'center', 'Frame 1 stage position is center (zero flash to bottom-left!)');
+    eq(f1.htmlComputedBg, 'rgba(0, 0, 0, 0)', 'Frame 1 <html> computed background is true alpha-0 transparent');
+    eq(f1.bodyComputedBg, 'rgba(0, 0, 0, 0)', 'Frame 1 <body> computed background is true alpha-0 transparent');
+
+    // 3. Refresh OBS page and verify Frame-1 STILL has zero jump/flash
+    await obsPage.reload({ waitUntil: 'domcontentloaded' });
+    await obsPage.waitForTimeout(200);
+    const f2 = await obsPage.evaluate(() => window.__firstFrameObs);
+    eq(f2.stagePos, 'center', 'After OBS Refresh, Frame 1 stays centered (zero jump to bottom-left)');
+    eq(f2.htmlComputedBg, 'rgba(0, 0, 0, 0)', 'After OBS Refresh, Frame 1 remains true transparent');
+
+    await obsPage.screenshot({ path: path.join(evDir, '22-obs-source-transparent-center.png'), omitBackground: true });
+
+    // 4. Live-sync test: even with stale ?bg=transparent in OBS URL, changing bgMode in app updates OBS immediately via SSE
+    await fetch(`${eng.base}/api/overlay-config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bgMode: 'chroma' }),
+    });
+    await obsPage.waitForFunction(() => getComputedStyle(document.documentElement).backgroundColor === 'rgb(0, 177, 64)', { timeout: 3000 });
+
+    await fetch(`${eng.base}/api/overlay-config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bgMode: 'transparent' }),
+    });
+    await obsPage.waitForFunction(() => getComputedStyle(document.documentElement).backgroundColor === 'rgba(0, 0, 0, 0)', { timeout: 3000 });
+
+    await obsPage.close();
+    await ctx.close();
+    return { trueTransparency: true, zeroFlashCenter: true, liveSyncWithStaleUrl: true };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

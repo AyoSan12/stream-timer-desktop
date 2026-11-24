@@ -1741,21 +1741,20 @@ function scheduleRulesAutoSave(toastMsg = '') {
 function buildObsUrl(masked = true) {
   if (!activeProfile) return '';
   const tok = masked ? '••••••••' : encodeURIComponent(activeProfile.readToken);
-  const bg = $('ovBg').value;
   const qs = [`profile=${encodeURIComponent(activeProfile.id)}`, `token=${tok}`];
-  if (bg !== 'dark') qs.push(`bg=${bg}`);
-  if (!$('ovPopup').checked) qs.push('popup=off');
   return `${window.location.origin}/source?${qs.join('&')}`;
 }
 
 function readOverlayFormBody() {
+  const rawOp = Number($('ovOpacity').value);
+  const opacity = Number.isFinite(rawOp) ? Math.min(100, Math.max(0, Math.round(rawOp))) : 92;
   return {
     timerName: $('ovTimerName').value,
     totalName: $('ovTotalName').value,
     bgMode: $('ovBg').value,
     position: $('ovPos').value,
     fontSize: Number($('ovSize').value) || 38,
-    opacity: Number($('ovOpacity').value) || 92,
+    opacity,
     showTotal: $('ovShowTotal').checked,
     popup: $('ovPopup').checked,
   };
@@ -1831,7 +1830,17 @@ function applyObsPreview() {
   $('obsPrevRush').hidden = !overlayCfg.rushOn;
   $('obsPrevLbl').textContent = lblTxt;
   $('obsPrevTot').hidden = !$('ovShowTotal').checked;
-  $('obsPreviewCard').style.backgroundColor = `rgba(29,29,31,${((Number($('ovOpacity').value) || 92) / 100).toFixed(2)})`;
+  const rawOp = Number($('ovOpacity').value);
+  const op = Number.isFinite(rawOp) ? Math.min(100, Math.max(0, Math.round(rawOp))) : 92;
+  if (op === 0) {
+    $('obsPreviewCard').style.backgroundColor = 'transparent';
+    $('obsPreviewCard').style.borderColor = 'transparent';
+    $('obsPreviewCard').style.boxShadow = 'none';
+  } else {
+    $('obsPreviewCard').style.backgroundColor = `rgba(29,29,31,${(op / 100).toFixed(2)})`;
+    $('obsPreviewCard').style.borderColor = '';
+    $('obsPreviewCard').style.boxShadow = '';
+  }
   $('obsUrlBox').textContent = buildObsUrl(!obsRevealed);
   $('obsRevealBtn').textContent = obsRevealed ? 'Hide URL' : 'Show Full URL';
 }
@@ -2644,8 +2653,11 @@ function bindAllEvents() {
   $('saveYtBtn').addEventListener('click', () => saveRulesToServer('Saved YouTube catalog'));
   $('saveTwBtn').addEventListener('click', () => saveRulesToServer('Saved Twitch catalog'));
 
-  // OBS Overlay (instant live preview + debounced auto-save so labels like "Jam hidup" never reset!)
-  [$('ovTimerName'), $('ovTotalName'), $('ovBg'), $('ovPos'), $('ovSize'), $('ovOpacity'), $('ovShowTotal'), $('ovPopup')].forEach((c) => {
+  // OBS Overlay (instant live preview + immediate save on selects/toggles, debounced auto-save on text/number inputs)
+  [$('ovBg'), $('ovPos'), $('ovShowTotal'), $('ovPopup')].forEach((c) => {
+    c.addEventListener('change', () => { applyObsPreview(); flushOverlaySave({ showNotice: false }); });
+  });
+  [$('ovTimerName'), $('ovTotalName'), $('ovSize'), $('ovOpacity')].forEach((c) => {
     const onEdit = () => { applyObsPreview(); scheduleOverlayAutoSave(); };
     c.addEventListener('input', onEdit);
     c.addEventListener('change', onEdit);

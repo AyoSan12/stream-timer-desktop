@@ -8,11 +8,12 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  background: #000000;
+  background: transparent;
 }
 
-body[data-bg="transparent"] { background: transparent; }
-body[data-bg="chroma"] { background: #00b140; }
+html[data-bg="dark"], html[data-bg="dark"] body, body[data-bg="dark"] { background: #000000; }
+html[data-bg="transparent"], html[data-bg="transparent"] body, body[data-bg="transparent"] { background: transparent !important; }
+html[data-bg="chroma"], html[data-bg="chroma"] body, body[data-bg="chroma"] { background: #00b140 !important; }
 
 .stage {
   width: 100vw;
@@ -38,6 +39,12 @@ body[data-bg="chroma"] { background: #00b140; }
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
   color: #ffffff;
   text-align: center;
+}
+
+.overlay-card.is-frameless {
+  background-color: transparent !important;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .rush-badge {

@@ -590,6 +590,33 @@ cases.push({
   },
 });
 
+cases.push({
+  id: 'E9-obs-source-ssr-zero-flash-and-transparent-bg',
+  async fn() {
+    await req(eng.base, '/api/profiles/switch', { method: 'POST', body: { profileId: profUsdId } });
+    const boot = await req(eng.base, '/api/app/bootstrap');
+    const tok = boot.data.activeProfile.readToken;
+
+    const putOv = await req(eng.base, '/api/overlay-config', {
+      method: 'PUT',
+      body: { bgMode: 'transparent', position: 'center', timerName: 'Center Live', opacity: 75 },
+    });
+    eq(putOv.status, 200, 'PUT /api/overlay-config succeeded');
+
+    // Even if OBS still has a stale &bg=dark query param, live config wins and SSR renders exact first frame
+    const srcRes = await req(eng.base, `/source?profile=${encodeURIComponent(profUsdId)}&token=${encodeURIComponent(tok)}&bg=dark`);
+    eq(srcRes.status, 200, 'GET /source returns 200');
+    const html = srcRes.data.toString('utf8');
+    assert(html.includes('<html lang="en" data-bg="transparent">'), 'SSR sets data-bg="transparent" on root <html>');
+    assert(html.includes('<body data-bg="transparent">'), 'SSR sets data-bg="transparent" on <body>');
+    assert(html.includes('data-pos="center"'), 'SSR sets data-pos="center" on first byte');
+    assert(html.includes('CENTER LIVE'), 'SSR renders timer label on first byte');
+    assert(html.includes('"bgMode":"transparent"') && html.includes('"position":"center"'), 'SSR embeds __INITIAL_OBS__ payload');
+
+    return { ssrHydrated: true };
+  },
+});
+
 try {
   const results = await runCases(cases);
   console.log(JSON.stringify(summarize(results)));

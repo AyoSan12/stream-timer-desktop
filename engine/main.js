@@ -348,6 +348,101 @@ function resolveObsProfile(url) {
   return null;
 }
 
+function escHtmlAttr(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtObsClock(ms) {
+  const sec = Math.ceil(Math.max(0, Number(ms) || 0) / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function renderObsSourceHtml(targetProfile, url) {
+  const tpl = fs.readFileSync(path.join(UI_DIR, 'source.html'), 'utf8');
+  let initialOverlay = {
+    timerName: 'Stream Timer',
+    totalName: 'Total Added',
+    showTimer: true,
+    showTotal: true,
+    showRush: true,
+    bgMode: 'dark',
+    bgColor: '#00ff00',
+    textColor: '#ffffff',
+    accentColor: '#2997ff',
+    fontFamily: 'SF Mono, JetBrains Mono, ui-monospace, monospace',
+    fontSize: 42,
+    position: 'bottom-left',
+    opacity: 92,
+    popup: true,
+    rushOn: false,
+    rushLv: 1,
+    totalCreditMs: 0,
+  };
+  let snap = null;
+  if (targetProfile) {
+    const db = store.openProfileDb(targetProfile.id);
+    const cfg = readOverlayConfig(db);
+    snap = readSnapshot(db);
+    const hist = readDonationHistory(db, { limit: 1 });
+    initialOverlay = { ...cfg, totalCreditMs: hist.stats.totalCreditMs, baseCurrency: targetProfile.baseCurrency };
+  }
+
+  const rawBg = initialOverlay.bgMode || url.searchParams.get('bg') || 'transparent';
+  const bgMode = ['dark', 'transparent', 'chroma', 'color'].includes(rawBg) ? rawBg : 'transparent';
+  const bgInlineStyle = bgMode === 'color' && /^#[0-9a-fA-F]{6}$/.test(initialOverlay.bgColor || '')
+    ? ` style="background:${initialOverlay.bgColor};"`
+    : '';
+  const pos = ['bottom-left', 'bottom-right', 'top-left', 'top-right', 'center'].includes(initialOverlay.position)
+    ? initialOverlay.position
+    : 'bottom-left';
+  const rawOp = Number(initialOverlay.opacity);
+  const op = Number.isFinite(rawOp) ? Math.min(100, Math.max(0, Math.round(rawOp))) : 92;
+  const cardClass = op === 0 ? 'overlay-card is-frameless' : 'overlay-card';
+  const cardStyle = op === 0 ? 'background-color: transparent;' : `background-color: rgba(29, 29, 31, ${(op / 100).toFixed(2)});`;
+  const rushHidden = !(initialOverlay.rushOn && initialOverlay.showRush) ? ' hidden' : '';
+  const rushText = `BILLING RUSH LV.${initialOverlay.rushLv || 1}`;
+  const timerHidden = !initialOverlay.showTimer ? ' hidden' : '';
+  const timerLabelText = (initialOverlay.rushOn ? 'BILLING RUSH' : (initialOverlay.timerName || 'Stream Timer')).toUpperCase();
+  const timerLabelColor = initialOverlay.rushOn ? '#ffd60a' : (initialOverlay.accentColor || '#2997ff');
+  const countdownColor = initialOverlay.textColor || '#ffffff';
+  const fontSize = Number(initialOverlay.fontSize) || 42;
+  const fontFam = initialOverlay.fontFamily ? `font-family:${escHtmlAttr(initialOverlay.fontFamily)};` : '';
+  const countdownStyle = `color:${escHtmlAttr(countdownColor)};font-size:${fontSize}px;${fontFam}`;
+  const clockText = fmtObsClock(snap ? snap.remainingMs : 0);
+  const totalHidden = !initialOverlay.showTotal ? ' hidden' : '';
+  const totalLabelText = (initialOverlay.totalName || 'Total Added').toUpperCase();
+  const totalMins = Math.floor((initialOverlay.totalCreditMs || 0) / 60000);
+  const totalValText = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+  const totalValColor = initialOverlay.accentColor || '#2997ff';
+  const bootPayloadJson = JSON.stringify({ overlay: initialOverlay, snapshot: snap }).replace(/</g, '\\u003c');
+
+  const vars = {
+    __OBS_BG__: bgMode,
+    __OBS_BG_STYLE__: bgInlineStyle,
+    __OBS_POS__: pos,
+    __OBS_CARD_CLASS__: cardClass,
+    __OBS_CARD_STYLE__: cardStyle,
+    __OBS_RUSH_HIDDEN__: rushHidden,
+    __OBS_RUSH_TEXT__: escHtmlAttr(rushText),
+    __OBS_TIMER_HIDDEN__: timerHidden,
+    __OBS_TIMER_LABEL_STYLE__: `color:${escHtmlAttr(timerLabelColor)};`,
+    __OBS_TIMER_LABEL__: escHtmlAttr(timerLabelText),
+    __OBS_COUNTDOWN_STYLE__: countdownStyle,
+    __OBS_CLOCK__: clockText,
+    __OBS_TOTAL_HIDDEN__: totalHidden,
+    __OBS_TOTAL_LABEL__: escHtmlAttr(totalLabelText),
+    __OBS_TOTAL_VAL_STYLE__: `color:${escHtmlAttr(totalValColor)};`,
+    __OBS_TOTAL_VAL__: escHtmlAttr(totalValText),
+    __OBS_INIT_JSON__: bootPayloadJson,
+  };
+  let html = tpl;
+  for (const [k, v] of Object.entries(vars)) html = html.replaceAll(k, v);
+  return html;
+}
+
 // ------------------------------------------------------------ HTTP Server ---
 
 const server = http.createServer(async (req, res) => {
@@ -364,7 +459,13 @@ const server = http.createServer(async (req, res) => {
       if (!target && url.searchParams.get('token')) {
         return sendJson(res, 401, { error: 'invalid_obs_token' });
       }
-      return serveStaticFile(res, path.join(UI_DIR, 'source.html'));
+      const html = renderObsSourceHtml(target, url);
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate',
+        'content-length': Buffer.byteLength(html),
+      });
+      return res.end(html);
     }
     if (req.method === 'GET' && (p.startsWith('/styles/') || p.startsWith('/js/') || p.startsWith('/i18n/') || p === '/source.css')) {
       return serveStaticFile(res, path.join(UI_DIR, p.slice(1)));
@@ -564,7 +665,10 @@ const server = http.createServer(async (req, res) => {
     // 7. SSE Stream (Panel & OBS)
     if (req.method === 'GET' && p === '/api/stream') {
       const role = url.searchParams.get('role') === 'obs' ? 'obs' : 'panel';
-      const ctx = activeCtx();
+      const scopedProfile = role === 'obs' && url.searchParams.get('profile') ? resolveObsProfile(url) : null;
+      const ctx = scopedProfile
+        ? { profile: scopedProfile, db: store.openProfileDb(scopedProfile.id), fx: store.getFxState() }
+        : activeCtx();
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache, no-transform',
@@ -631,7 +735,12 @@ const server = http.createServer(async (req, res) => {
 
     // 9. Timer State & Commands
     if (req.method === 'GET' && p === '/api/state') {
-      return sendJson(res, 200, readSnapshot(ctx.db));
+      const scopedProfile = url.searchParams.get('profile') ? resolveObsProfile(url) : null;
+      if (url.searchParams.get('profile') && !scopedProfile) {
+        return sendJson(res, 401, { error: 'invalid_obs_token' });
+      }
+      const targetDb = scopedProfile ? store.openProfileDb(scopedProfile.id) : ctx.db;
+      return sendJson(res, 200, readSnapshot(targetDb));
     }
     if (req.method === 'POST' && p === '/api/command/toggle') {
       const snap = readSnapshot(ctx.db);
@@ -772,9 +881,15 @@ const server = http.createServer(async (req, res) => {
 
     // 12. OBS Overlay Config
     if (req.method === 'GET' && p === '/api/overlay-config') {
-      const cfg = readOverlayConfig(ctx.db);
-      const hist = readDonationHistory(ctx.db, { limit: 1 });
-      return sendJson(res, 200, { ...cfg, totalCreditMs: hist.stats.totalCreditMs, baseCurrency: ctx.profile.baseCurrency });
+      const scopedProfile = url.searchParams.get('profile') ? resolveObsProfile(url) : null;
+      if (url.searchParams.get('profile') && !scopedProfile) {
+        return sendJson(res, 401, { error: 'invalid_obs_token' });
+      }
+      const targetProf = scopedProfile || ctx.profile;
+      const targetDb = scopedProfile ? store.openProfileDb(scopedProfile.id) : ctx.db;
+      const cfg = readOverlayConfig(targetDb);
+      const hist = readDonationHistory(targetDb, { limit: 1 });
+      return sendJson(res, 200, { ...cfg, totalCreditMs: hist.stats.totalCreditMs, baseCurrency: targetProf.baseCurrency });
     }
     if (req.method === 'PUT' && p === '/api/overlay-config') {
       const body = JSON.parse(await readBody(req) || '{}');
